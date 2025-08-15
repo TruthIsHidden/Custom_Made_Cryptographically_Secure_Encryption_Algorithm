@@ -299,38 +299,42 @@ public:
     }
 
     void GenerateKey(string password) {
-        int seed = 0;
-        string seedSource = h.HASHER(password + CHARSET, password.length() / 2);
+    int seed = 0;
+    string seedSource = h.HASHER(password + CHARSET, password.length() / 2);
 
-        for (char& c : seedSource) {
-            seed += int(c);
-        }
-
-        mt19937 gen(seed);
-        uniform_int_distribution<> dist(0, CHARSET.length() - 1);
-        while (password.length() < 128) {
-            password += CHARSET[dist(gen)];
-        }
-
-        string hashedKey = h.HASHER(password, password.length());
-
-        for (size_t i = 0; i < password.length(); i++) {
-            password[i] ^= hashedKey[i];
-        }
-        string baseKey = password; 
-        string Opkey(baseKey.length(), 0);
-
-        for (int i = 0; i < baseKey.length(); i++) {
-            Opkey[i] = baseKey[i] ^ CHARSET[i % CHARSET.length()];
-            Opkey[i] = (Opkey[i] << (1 + (i % 3))) | (Opkey[i] >> (8 - (1 + (i % 3))) >> 1);
-        }
-
-        for (int i = 0; i < baseKey.length(); i++) {
-            password[i] ^= (Opkey[i] << 2);
-        }
-
-        KEY = password;
+    int x = 0;
+    for (char& c : seedSource) {
+        if ((c - x) < 0) seed += int(c) * 1391 + ((x + c) * (-c - x));
+        else seed += int(c) * 1391 + ((x + c) * (c - x));
+        
+        x++;
     }
+
+    mt19937 gen(seed);
+    uniform_int_distribution<> dist(0, CHARSET.length() - 1);
+    while (password.length() < 128) {
+        password += CHARSET[dist(gen)];
+    }
+
+    string hashedKey = h.HASHER(password, password.length());
+
+    for (size_t i = 0; i < password.length(); i++) {
+        password[i] ^= hashedKey[i];
+    }
+    string baseKey = password; 
+    string Opkey(baseKey.length(), 0);
+
+    for (int i = 0; i < baseKey.length(); i++) {
+        Opkey[i] = baseKey[i] ^ CHARSET[i % CHARSET.length()];
+        Opkey[i] = (Opkey[i] << (1 + (i % 3))) | (Opkey[i] >> (8 - (1 + (i % 3))) >> 1);
+    }
+
+    for (int i = 0; i < baseKey.length(); i++) {
+        password[i] ^= (Opkey[i] << 2);
+    }
+
+    KEY = password;
+}
 
 
     void ExtendKey(size_t targetLength) {
@@ -473,4 +477,5 @@ int main() {
     crypto.RunInteractive();
 
     return 0;
+
 }
