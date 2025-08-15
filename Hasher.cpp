@@ -430,11 +430,10 @@ string Hasher::KDFProduceEncryptStream(long long r, int len, string content) {
 
     string SALTV2 = RSProducer(content);
     if (SALTV2.length() < content.length()) {
-        int remaining = content.length() - SALTV2.length();
-        string Additive = HASHER(SALTV2, remaining);
+        int ToAdd = content.length() - SALTV2.length();
+        string Additive = HASHER(SALTV2, ToAdd);
         SALTV2 += Additive;
     }
-    SALTV2 = SALTV2.substr(0, content.length());
 
     for (size_t m = 0; m < content.length(); m++) {
         content[m] = (unsigned char)content[m] ^ (unsigned char)SALTV2[m];
@@ -442,5 +441,4 @@ string Hasher::KDFProduceEncryptStream(long long r, int len, string content) {
     }
 
     return content;
-
 }
