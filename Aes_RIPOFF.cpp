@@ -43,23 +43,19 @@ public:
         int num = dist(gen);
         int num2 = fdist(gen);
         int num3 = fdist(gen);
-        return GenSalt +  "?2@m̴a̴r̴k̴e̶r̴{.!" + orginal + CHARSET[num2] + "-̵*̶/̸" + GenSalt2 + CHARSET[num3];
+        return GenSalt +  "?2@{.!" + orginal + CHARSET[num2] + "-@!/2;'" + GenSalt2 + CHARSET[num3];
 
     }
 
-    string RemoveRandomSalt(const string& Salted)
-    {
-        
-        size_t pos = Salted.find("?2@m̴a̴r̴k̴e̶r̴{.!");
-        if (pos == string::npos) return ""; 
+    string RemoveRandomSalt(const string& Salted) {
+        size_t pos = Salted.find("?2@{.!");
+        if (pos == string::npos) return "";  
 
-        string afterMarker = Salted.substr(pos + 18);
+        string afterMarker = Salted.substr(pos + 6);
+        size_t sepPos = afterMarker.find("-@!/2;'");  
+        if (sepPos == string::npos || sepPos == 0) return "";
 
-        size_t sepPos = afterMarker.find("-̵*̶/̸");
-        if (sepPos == string::npos || sepPos == 0) return ""; 
-
-        string Original = afterMarker.substr(0, sepPos - 1); 
-
+        string Original = afterMarker.substr(0, sepPos - 1);  
         return Original;
     }
     string Streamer(string Data)
@@ -190,7 +186,7 @@ public:
     // Base64 Decoding
     string Base64Decode(const string& input) {
         static const string base64_chars =
-            "s̸͊͌̏̊́͂̌̓͛̆͑͘͘͜͝͝è̶͍̈́̿̿̂͝x̶͆̃̂̎͆ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/b̷̦͓̔́́͑͝t̴͉̙̜̝̃̊͗̅̐͜͝c̸̨̗͉̤̳͂̌̚͠h̶̻̥̗̊̔͝ṉ̵̱̲͕͇͑į̶̩͈̭̐́g̵̲̺̈g̷̛͔̔̑͘a̸̢̮̰̾̂̽͗d̸̘̊͐͋ȉ̵̬̱̮̲͙͍͑̍̐̉͐ç̵̥̱̙̑̋͗̇̌̚͜k̸̞͉̪̠̦̍";
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
         vector<int> T(256, -1);
         for (int i = 0; i < 64; i++) T[base64_chars[i]] = i;
 
