@@ -99,60 +99,6 @@ string Hasher::Base64Decode(const string& input) {
     return output;
 }
 
-string Hasher::compressor(const string& input) {
-    if (input.empty()) return "";
-
-    ostringstream out;
-    int count = 1;
-    for (size_t i = 1; i <= input.length(); ++i) {
-        if (i < input.length() && input[i] == input[i - 1]) {
-            count++;
-        }
-        else {
-            out << input[i - 1] << count;
-            count = 1;
-        }
-    }
-    return out.str();
-}
-
-string Hasher::decompressor(const string& input) {
-    ostringstream out;
-    for (size_t i = 0; i < input.length(); ++i) {
-        char c = input[i];
-        string num;
-        while (i + 1 < input.length() && isdigit(input[i + 1])) {
-            num += input[++i];
-        }
-        if (!num.empty()) {
-            int count = stoi(num);
-            out << string(count, c);
-        }
-    }
-    return out.str();
-}
-
-string Hasher::toHex(const string& input) {
-    stringstream ss;
-    ss << hex << setfill('0');
-    for (unsigned char c : input) {
-        ss << setw(2) << (int)c;
-    }
-    return ss.str();
-}
-
-string Hasher::fromHex(const string& hex) {
-    string output;
-    for (size_t i = 0; i < hex.length(); i += 2) {
-        if (i + 1 < hex.length()) {
-            string byte = hex.substr(i, 2);
-            unsigned char chr = (unsigned char)strtol(byte.c_str(), nullptr, 16);
-            output.push_back(chr);
-        }
-    }
-    return output;
-}
-
 string Hasher::stringToBinary(const string& input) {
     string binaryResult = "";
     for (char c : input) {
@@ -459,7 +405,7 @@ string Hasher::KDFRSARIPOFF(string content, string key) {
 
     long long r = (1LL * k * k * (m - n) * (m - n) - 1LL * k * (m + n + 2)) / 2;
 
-    string stream = KDFProduceEncryptStream(r + (k - m), (int)content.length(), content);
+    string stream = KDFProduceEncryptStream(r  * r * r * r + (k - m), (int)content.length(), content);
 
     return stream;
 }
