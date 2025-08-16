@@ -1,5 +1,11 @@
 #include "Hasher.h"
 
+const string CHARSET = " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~";
+const string Extended = " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~"
+"€‚ƒ„…†‡ˆ‰Š‹ŒŽ''""•–—˜™š›œžŸ ¡¢£¤¥¦§¨©ª«¬­®¯°±²³´µ¶·¸¹º»¼½¾¿"
+"ÀÁÂÃÄÅÆÇÈÉÊËÌÍÎÏÐÑÒÓÔÕÖ×ØÙÚÛÜÝÞßàáâãäåæçèéêëìíîïðñòóôõö÷øùúûüýþÿ";
+const string Combined = CHARSET + Extended;
+
 bool Hasher::IsPrime(int num) {
     if (num < 2) return false;
     if (num == 2 || num == 3) return true;
@@ -133,7 +139,7 @@ string Hasher::RSProducer(string SEED) {
     if (SEED.empty()) SEED = "fallback";
     if (SEED.length() < 2) SEED += SEED;
 
-    string SCRAPPY = "AaBbCcDdEeFfGgHhIiJjKkLlMmNnOoPpQqRrSsTtUuVvWwXxYyZz0123456789!@#$%._+";
+    string SCRAPPY = Combined;
 
     for (size_t i = 0; i < SEED.length(); i++) {
         SEED[i] = (unsigned char)SEED[i] >> 2;
@@ -231,7 +237,7 @@ string Hasher::HASHER(string key, int lenny){
     string prevIntermediate;
     string binary;
     string post;
-    string SALT = "!@$%<>?@!$%(#8BRks,1-/*193#<{}|Mzsi31~#$>-:?>$,.";
+    string SALT = Combined;
 
     for (char& c : SALT) {
         c = (unsigned char)((c << 1) | (c >> 7));
@@ -345,7 +351,7 @@ string Hasher::HASHER(string key, int lenny){
 
         if (post.length() % 8 == 0) {
             if (post.length() < 7) {
-                post.append("!@#?:*/-+.?}}{|" + char((PRESALT[i % PRESALT.length()])) - 2);
+                post.append("!@3?f-+R}{|" + char((PRESALT[i % PRESALT.length()])) - 2);
             }
             else {
                 int reduction = ndist(s);
