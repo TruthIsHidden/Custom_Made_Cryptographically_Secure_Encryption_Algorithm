@@ -22,6 +22,11 @@ private:
 
 public:
 
+    
+
+    string DECRYPTRSARIPOFFSTREAM()
+    {
+    }
     string AddRandomSalt(string orginal)
     {
         random_device rd; 
@@ -61,7 +66,7 @@ public:
     string Streamer(string Data)
     {
         string DerivedKey = KEY;
-        while (DerivedKey.length() < Data.length())
+        if(DerivedKey.length() < Data.length())
         {
             DerivedKey += h.HASHER(DerivedKey, Data.length() - DerivedKey.length());
         }
@@ -168,7 +173,7 @@ public:
 
         int x = 0;
         for (char& c : seedSource) {
-            if ((c - x) < 0) seed += int(c) * 1391 + ((x + c) * (-c - x));
+            if ((c - x) < 0) seed += int(c) * 1391 + ((x + c) * -(c - x));
             else seed += int(c) * 1391 + ((x + c) * (c - x));
             
             x++;
@@ -218,6 +223,7 @@ public:
             encrypted[i] ^= KEY[i];
         }
         // encrypted = Matrix(encrypted);
+        encrypted = h.REVERSIBLEKDFRSARIPOFF(encrypted, KEY);
         encrypted = h.Base64Encode(Streamer(encrypted));
         return encrypted;
     }
@@ -225,6 +231,7 @@ public:
     string Decrypt(const string& ciphertext, const string& password) {
         string decodedCipher = h.Base64Decode(ciphertext);
         string afterStreamer = ReverseStreamer(decodedCipher);
+        afterStreamer = h.REVERSIBLEKDFRSARIPOFF(afterStreamer, KEY);
         GenerateKey(password);
         ExtendKey(afterStreamer.length());
 
