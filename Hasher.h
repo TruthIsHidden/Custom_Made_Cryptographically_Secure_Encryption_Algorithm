@@ -32,6 +32,8 @@ public:
     string KDFRSARIPOFF(string content, string key);
     string Base64Encode(const string& input);
     string Base64Decode(const string& input);
+    string REVERSIBLEKDFRSARIPOFF(string Orginal, string KEY);
+    
 
     // void RunCollisionTest(int l);  // Future implementation
 };
