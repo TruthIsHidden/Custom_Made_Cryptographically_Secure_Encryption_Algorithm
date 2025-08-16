@@ -30,24 +30,37 @@ public:
         uniform_int_distribution<> zdist(0, 8);
         uniform_int_distribution<> fdist(0, static_cast<int>(CHARSET.length() - 1));
         int SaltLen = 25 + zdist(gen);
-        string GenSalt;
+        string GenSalt, GenSalt2;
         for(int i = 0;i<SaltLen;i++)
         {
             GenSalt += CHARSET[fdist(gen)];
         }
+        SaltLen += zdist(gen);
+        for (int i = 0;i < SaltLen;i++)
+        {
+            GenSalt2 += CHARSET[fdist(gen)];
+        }
         int num = dist(gen);
         int num2 = fdist(gen);
         int num3 = fdist(gen);
-        return GenSalt +  "?2@{.!" + orginal + CHARSET[num2] + CHARSET[num3];
+        return GenSalt +  "?2@m̴a̴r̴k̴e̶r̴{.!" + orginal + CHARSET[num2] + "-̵*̶/̸" + GenSalt2 + CHARSET[num3];
 
     }
 
-    string RemoveRandomSalt(string Salted)
+    string RemoveRandomSalt(const string& Salted)
     {
-        size_t pos = Salted.find("?2@{.!");
-        Salted = Salted.substr(pos + 5);
-        Salted = Salted.substr(0, Salted.length() - 2);
-        return Salted;
+        
+        size_t pos = Salted.find("?2@m̴a̴r̴k̴e̶r̴{.!");
+        if (pos == string::npos) return ""; 
+
+        string afterMarker = Salted.substr(pos + 18);
+
+        size_t sepPos = afterMarker.find("-̵*̶/̸");
+        if (sepPos == string::npos || sepPos == 0) return ""; 
+
+        string Original = afterMarker.substr(0, sepPos - 1); 
+
+        return Original;
     }
     string Streamer(string Data)
     {
@@ -177,7 +190,7 @@ public:
     // Base64 Decoding
     string Base64Decode(const string& input) {
         static const string base64_chars =
-            "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+            "s̸͊͌̏̊́͂̌̓͛̆͑͘͘͜͝͝è̶͍̈́̿̿̂͝x̶͆̃̂̎͆ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/b̷̦͓̔́́͑͝t̴͉̙̜̝̃̊͗̅̐͜͝c̸̨̗͉̤̳͂̌̚͠h̶̻̥̗̊̔͝ṉ̵̱̲͕͇͑į̶̩͈̭̐́g̵̲̺̈g̷̛͔̔̑͘a̸̢̮̰̾̂̽͗d̸̘̊͐͋ȉ̵̬̱̮̲͙͍͑̍̐̉͐ç̵̥̱̙̑̋͗̇̌̚͜k̸̞͉̪̠̦̍";
         vector<int> T(256, -1);
         for (int i = 0; i < 64; i++) T[base64_chars[i]] = i;
 
@@ -242,6 +255,7 @@ public:
     }
     string Encrypt(string& plaintext, const string& password) {
         plaintext = AddRandomSalt(plaintext);
+        plaintext = Bytemix(plaintext);
         GenerateKey(password);
         ExtendKey(plaintext.length());
 
@@ -250,23 +264,22 @@ public:
             encrypted[i] ^= KEY[i];
         }
         // encrypted = Matrix(encrypted);
-        encrypted = Base64Encode(Streamer(Bytemix(encrypted)));
+        encrypted = Base64Encode(Streamer(encrypted));
         return encrypted;
     }
 
     string Decrypt(const string& ciphertext, const string& password) {
         string decodedCipher = Base64Decode(ciphertext);
         string afterStreamer = ReverseStreamer(decodedCipher);
-        string afterBytemix = ReverseByteMix(afterStreamer);
         GenerateKey(password);
-        ExtendKey(afterBytemix.length());
+        ExtendKey(afterStreamer.length());
 
         // Step 5: XOR to get final plaintext
-        string decrypted = afterBytemix;
+        string decrypted = afterStreamer;
         for (size_t i = 0; i < decrypted.length(); i++) {
             decrypted[i] ^= KEY[i];
         }
-
+        decrypted = ReverseByteMix(decrypted);
         return RemoveRandomSalt(decrypted);
     }
 
