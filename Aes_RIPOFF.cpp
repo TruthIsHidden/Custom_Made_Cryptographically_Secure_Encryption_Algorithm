@@ -11,6 +11,8 @@
 #include <unordered_map>
 #include <chrono>
 #include <limits>
+#include <locale>
+
 
 using namespace std;
 
@@ -19,21 +21,23 @@ private:
     Hasher h;
     string KEY;
     const string CHARSET = " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~";
-
+    const string Extended = " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~"
+                         "€‚ƒ„…†‡ˆ‰Š‹ŒŽ''""•–—˜™š›œžŸ ¡¢£¤¥¦§¨©ª«¬­®¯°±²³´µ¶·¸¹º»¼½¾¿"
+        "ÀÁÂÃÄÅÆÇÈÉÊËÌÍÎÏÐÑÒÓÔÕÖ×ØÙÚÛÜÝÞßàáâãäåæçèéêëìíîïðñòóôõö÷øùúûüýþÿ";
+    const string Combined = CHARSET + Extended;
 public:
 
-    
-
-    string DECRYPTRSARIPOFFSTREAM()
-    {
-    }
     string AddRandomSalt(string orginal)
     {
         random_device rd; 
         mt19937 gen(rd()); 
+        int Seed = 0;
+        for (char& c : KEY) Seed += int(c) * 133;
+        mt19937 fgen(Seed);
         uniform_int_distribution<> dist(0, 99);
         uniform_int_distribution<> zdist(0, 8);
         uniform_int_distribution<> fdist(0, static_cast<int>(CHARSET.length() - 1));
+        uniform_int_distribution<> ndist(0, Extended.length() - 1);
         int SaltLen = 25 + zdist(gen);
         string GenSalt, GenSalt2;
         for(int i = 0;i<SaltLen;i++)
@@ -48,21 +52,47 @@ public:
         int num = dist(gen);
         int num2 = fdist(gen);
         int num3 = fdist(gen);
-        return GenSalt +  "?2@{.!" + orginal + CHARSET[num2] + "-@!/2;'" + GenSalt2 + CHARSET[num3];
+        string Marker1, Marker2;
+        int len = 3 + zdist(fgen);
+        for (int i = 0;i < len;i++)
+        {
+            int pos = ndist(fgen);
+            Marker1 += Extended[pos];
+        }
+        for (int i = 0;i < len;i++)
+        {
+            int pos = ndist(fgen);
+            Marker2 += Extended[pos];
+        }
+        return GenSalt +  Marker1 + orginal + CHARSET[num2] + Marker2 + GenSalt2 + CHARSET[num3];
 
     }
+    string RemoveRandomSalt(const string& Salted)
+    {
+        int Seed = 0;
+        for (char& c : KEY) Seed += int(c) * 133;
+        mt19937 fgen(Seed);
 
-    string RemoveRandomSalt(const string& Salted) {
-        size_t pos = Salted.find("?2@{.!");
-        if (pos == string::npos) return "";  
+        uniform_int_distribution<> zdist(0, 8);
+        uniform_int_distribution<> fdist(0, static_cast<int>(CHARSET.length() - 1));
+        uniform_int_distribution<> ndist(0, Extended.length() - 1);
 
-        string afterMarker = Salted.substr(pos + 6);
-        size_t sepPos = afterMarker.find("-@!/2;'");  
+        int len = 3 + zdist(fgen); 
+        string Marker1, Marker2;
+        for (int i = 0; i < len; i++) Marker1 += Extended[ndist(fgen)];
+        for (int i = 0; i < len; i++) Marker2 += Extended[ndist(fgen)];
+
+        size_t pos = Salted.find(Marker1);
+        if (pos == string::npos) return "";
+
+        string afterMarker = Salted.substr(pos + Marker1.length());
+        size_t sepPos = afterMarker.find(Marker2);
         if (sepPos == string::npos || sepPos == 0) return "";
 
-        string Original = afterMarker.substr(0, sepPos - 1);  
+        string Original = afterMarker.substr(0, sepPos - 1);
         return Original;
     }
+
     string Streamer(string Data)
     {
         string DerivedKey = KEY;
@@ -169,7 +199,7 @@ public:
     }
     void GenerateKey(string password) {
         int seed = 0;
-        string seedSource = h.HASHER(password + CHARSET, password.length() / 2);
+        string seedSource = h.HASHER(password + Combined, password.length() / 2);
 
         int x = 0;
         for (char& c : seedSource) {
@@ -180,9 +210,9 @@ public:
         }
 
         mt19937 gen(seed);
-        uniform_int_distribution<> dist(0, CHARSET.length() - 1);
+        uniform_int_distribution<> dist(0, Combined.length() - 1);
         while (password.length() < 128) {
-            password += CHARSET[dist(gen)];
+            password += Combined[dist(gen)];
         }
 
         string hashedKey = h.HASHER(password, password.length());
@@ -194,7 +224,7 @@ public:
         string Opkey(baseKey.length(), 0);
 
         for (int i = 0; i < baseKey.length(); i++) {
-            Opkey[i] = baseKey[i] ^ CHARSET[i % CHARSET.length()];
+            Opkey[i] = baseKey[i] ^ Combined[i % Combined.length()];
             Opkey[i] = (Opkey[i] << (1 + (i % 3))) | (Opkey[i] >> (8 - (1 + (i % 3))) >> 1);
         }
 
@@ -213,6 +243,7 @@ public:
         }
     }
     string Encrypt(string& plaintext, const string& password) {
+        GenerateKey(password);
         plaintext = AddRandomSalt(plaintext);
         plaintext = Bytemix(plaintext);
         GenerateKey(password);
@@ -229,10 +260,10 @@ public:
     }
 
     string Decrypt(const string& ciphertext, const string& password) {
+        GenerateKey(password);
         string decodedCipher = h.Base64Decode(ciphertext);
         string afterStreamer = ReverseStreamer(decodedCipher);
         afterStreamer = h.REVERSIBLEKDFRSARIPOFF(afterStreamer, KEY);
-        GenerateKey(password);
         ExtendKey(afterStreamer.length());
 
         // Step 5: XOR to get final plaintext
@@ -336,7 +367,9 @@ public:
 };
 
 int main() {
+    std::setlocale(LC_ALL, "C");
     CryptoSystem crypto;
+
 
     crypto.ClearScreen();
     cout << "🔥 WELCOME TO THE OVERKILL ENCRYPTION SYSTEM 🔥" << endl;
