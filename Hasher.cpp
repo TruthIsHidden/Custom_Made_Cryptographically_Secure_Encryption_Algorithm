@@ -439,3 +439,47 @@ string Hasher::KDFProduceEncryptStream(long long r, int len, string content) {
 
     return content;
 }
+
+string Hasher::REVERSIBLEKDFRSARIPOFF(string Orginal, string KEY)
+{
+    
+    if (Orginal.empty() || KEY.empty()) return Orginal;
+
+    string SEED = RSProducer(KEY);
+    vector<uint32_t> entropy;
+    for (char c : SEED)
+        entropy.push_back(static_cast<uint32_t>((unsigned char)c));
+    seed_seq seq(entropy.begin(), entropy.end());
+    mt19937 gen(seq);
+    uniform_int_distribution<> distr(100000, 1000000);
+    uniform_int_distribution<> mnDist(10, 10000);
+
+    long long k = 0;
+    do {
+        k = distr(gen);
+    } while (!IsPrime((int)k));
+
+    int m = mnDist(gen), n = mnDist(gen);
+    while (m == n) n = mnDist(gen);
+
+    long long r = (1LL * k * k * (m - n) * (m - n) - 1LL * k * (m + n + 2)) / 2;
+
+    string stream = to_string(r * r * r * r + (k - m));
+    stream += HASHER(stream, KEY.length() - stream.length());
+
+    int x = 0;
+    for(char &c: KEY)
+    {
+        c ^= stream[x];
+        x++;
+    }
+    if (KEY.length() < Orginal.length()) KEY += HASHER(KEY, Orginal.length() - KEY.length());
+    x = 0;
+    for (char& c : Orginal)
+    {
+        c ^= KEY[x];
+        x++;
+    }
+
+    return Orginal;
+}
