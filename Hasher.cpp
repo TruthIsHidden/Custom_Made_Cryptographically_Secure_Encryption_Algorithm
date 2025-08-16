@@ -10,6 +10,55 @@ bool Hasher::IsPrime(int num) {
     return true;
 }
 
+string Hasher::Bytemix(string Data)
+{
+    string ByteBlob;
+
+    for (char& c : Data)
+    {
+        bitset<8> binary(c);
+        ByteBlob += binary.to_string();
+    }
+
+    size_t seed = 0;
+    for (char& c : Data) seed += (c * 31 + 17);
+    mt19937 gen(seed);
+
+    for (int round = 0; round < 5; round++)
+    {
+        uniform_int_distribution<> dist(0, ByteBlob.length() - 1);
+        for (int i = 0; i < ByteBlob.length() / 2; i++)
+        {
+            int j = dist(gen);
+            swap(ByteBlob[i], ByteBlob[j]);
+        }
+
+        for (int i = 0; i < ByteBlob.length(); i++)
+        {
+            if ((i + round * 7) % 2 == 0)
+                ByteBlob[i] = (ByteBlob[i] == '0') ? '1' : '0';
+
+            if (dist(gen) % 3 == 0)
+                ByteBlob[i] = (ByteBlob[i] == '0') ? '1' : '0';
+        }
+    }
+
+    string PackedResult;
+    for (int i = 0; i + 7 < ByteBlob.length(); i += 8)
+    {
+        bitset<8> bits(ByteBlob.substr(i, 8));
+        PackedResult += char(bits.to_ulong());
+    }
+    uniform_int_distribution<> byteDist(0, PackedResult.length() - 1);
+    for (int i = 0; i < PackedResult.length() / 2; i++)
+    {
+        int j = byteDist(gen);
+        swap(PackedResult[i], PackedResult[j]);
+    }
+
+    return PackedResult;
+}
+
 string Hasher::Base64Encode(const string& input) {
     static const string base64_chars =
         "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -378,6 +427,8 @@ string Hasher::HASHER(string key, int lenny){
                 c = (char)uc;
             }
         }
+
+        if (i % 16 == 0) post = Bytemix(post);
     }
     while (post.length() < lenny) {
         post += RSProducer(post + post[40 % (post.length() / 2)]);
@@ -408,7 +459,7 @@ string Hasher::KDFRSARIPOFF(string content, string key) {
 
     long long r = (1LL * k * k * (m - n) * (m - n) - 1LL * k * (m + n + 2)) / 2;
 
-    string stream = KDFProduceEncryptStream(r, (int)content.length(), content);
+    string stream = KDFProduceEncryptStream(r + (k - m), (int)content.length(), content);
 
     return stream;
 }
