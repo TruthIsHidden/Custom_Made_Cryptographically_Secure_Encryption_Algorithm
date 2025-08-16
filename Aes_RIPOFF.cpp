@@ -162,48 +162,6 @@ public:
 
         return originalData;
     }
-
-    string Base64Encode(const string& input) {
-        static const string base64_chars =
-            "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-        string output;
-        int val = 0, valb = -6;
-        for (unsigned char c : input) {
-            val = (val << 8) + c;
-            valb += 8;
-            while (valb >= 0) {
-                output.push_back(base64_chars[(val >> valb) & 0x3F]);
-                valb -= 6;
-            }
-        }
-        if (valb > -6) {
-            output.push_back(base64_chars[((val << 8) >> (valb + 8)) & 0x3F]);
-        }
-        while (output.size() % 4) output.push_back('=');
-        return output;
-    }
-
-    // Base64 Decoding
-    string Base64Decode(const string& input) {
-        static const string base64_chars =
-            "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-        vector<int> T(256, -1);
-        for (int i = 0; i < 64; i++) T[base64_chars[i]] = i;
-
-        string output;
-        int val = 0, valb = -8;
-        for (unsigned char c : input) {
-            if (T[c] == -1) break;
-            val = (val << 6) + T[c];
-            valb += 6;
-            if (valb >= 0) {
-                output.push_back(char((val >> valb) & 0xFF));
-                valb -= 8;
-            }
-        }
-        return output;
-    }
-
     void GenerateKey(string password) {
         int seed = 0;
         string seedSource = h.HASHER(password + CHARSET, password.length() / 2);
@@ -260,12 +218,12 @@ public:
             encrypted[i] ^= KEY[i];
         }
         // encrypted = Matrix(encrypted);
-        encrypted = Base64Encode(Streamer(encrypted));
+        encrypted = h.Base64Encode(Streamer(encrypted));
         return encrypted;
     }
 
     string Decrypt(const string& ciphertext, const string& password) {
-        string decodedCipher = Base64Decode(ciphertext);
+        string decodedCipher = h.Base64Decode(ciphertext);
         string afterStreamer = ReverseStreamer(decodedCipher);
         GenerateKey(password);
         ExtendKey(afterStreamer.length());
@@ -352,7 +310,6 @@ public:
             case 3:
                 ClearScreen();
                 cout << "🔥 WELCOME TO THE OVERKILL ENCRYPTION SYSTEM 🔥" << endl;
-                cout << "Protecting your data with a keyspace over 2^1024(yes) of brute force resistance!" << endl;
                 continue;
 
             case 4: 
@@ -376,7 +333,6 @@ int main() {
 
     crypto.ClearScreen();
     cout << "🔥 WELCOME TO THE OVERKILL ENCRYPTION SYSTEM 🔥" << endl;
-    cout << "Protecting your data with a keyspace of over 2^1024(yes) years of brute force resistance!" << endl;
     cout << "\nPress Enter to start...";
     cin.get();
 
