@@ -162,7 +162,7 @@ string Hasher::RSProducer(string SEED) {
     for (size_t i = 0; i < SEED.length(); i++) {
         SEED[i] ^= SEED[(i + 1) % SEED.length()];  // Better initial mixing
     }
-    for (int iter = 1; iter <= 64; iter++) {
+    for (int iter = 1; iter <= 100; iter++) {
         for (size_t i = 0; i < SEED.length(); i++) {
             SEED[i] = (unsigned char)SEED[i] ^ ((((((unsigned char)SEED[i] >> (i % 6)) ^ (5 * i)) + 12 * i) * (i % SEED.length()) >> 1) % 256);
         }
@@ -470,7 +470,6 @@ string Hasher::REVERSIBLEKDFRSARIPOFF(string Orginal, string KEY)
 
     long long r = (1LL * k * k * (m - n) * (m - n) - 1LL * k * (m + n + 2)) / 2;
     long long use = r * r * r * r + (k - m);
-    mt19937 mgen(use);
     string stream = to_string(use);
     stream += HASHER(stream, KEY.length() - stream.length());
 
@@ -481,67 +480,12 @@ string Hasher::REVERSIBLEKDFRSARIPOFF(string Orginal, string KEY)
         x++;
     }
     if (KEY.length() < Orginal.length()) KEY += HASHER(KEY, Orginal.length() - KEY.length());
-    long long p1 = mnDist(mgen);long long p2 = 0;
-    while ((p1 + p2) % 6 != 0) {
-        long long p1 = mnDist(mgen);
-        while (!IsPrime(p1)) p1 = mnDist(mgen);
-        long long p2 = findclosestprimeFast(p1);
-    }
-    long long mf = (p1 + p2) / 6;
-    string Ballsack = HASHER(to_string(mf - m), Orginal.length());
     x = 0;
     for (char& c : Orginal)
     {
         c ^= KEY[x];
-        c ^= Ballsack[x];
         x++;
     }
     return Orginal;
-}
-bool Hasher::IsPrimeOptimized(long long num) {
-    if (num < 2) return false;
-    if (num == 2) return true;
-    if (num % 2 == 0) return false;
-    if (num == 3) return true;
-    if (num % 3 == 0) return false;
-    
-    for (long long i = 5; i * i <= num; i += 6) {
-        if (num % i == 0 || num % (i + 2) == 0) {
-            return false;
-        }
-    }
-    return true;
-}
-
-long long Hasher::findclosestprimeFast(long long Base)
-{
-    if (Base < 2) return 2;
-    if (Base == 2) return 2;
-    if (Base == 3) return 3;
-
-    long long remainder = Base % 6;
-    if (remainder == 0 || remainder == 1) {
-        Base = Base - remainder + 1; 
-    }
-    else if (remainder == 2 || remainder == 3 || remainder == 4) {
-        Base = Base - remainder + 5; 
-    }
-    else {
-        Base = Base + 1; 
-    }
-
-
-    bool checkForm1 = ((Base % 6) == 1); 
-    while (!IsPrimeOptimized(Base)) {
-        if (checkForm1) {
-            Base += 4; 
-        }
-        else {
-            Base += 2; 
-        }
-        checkForm1 = !checkForm1;
-    }
-
-    return Base;
 }
 
