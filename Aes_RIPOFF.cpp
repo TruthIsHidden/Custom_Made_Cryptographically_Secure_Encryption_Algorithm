@@ -29,10 +29,17 @@ public:
 
     string AddRandomSalt(string orginal)
     {
-        random_device rd; 
-        mt19937 gen(rd()); 
+        random_device rd;
+        mt19937 gen(rd());
         int Seed = 0;
-        for (char& c : KEY) Seed += int(c) * 133;
+        int x = 0;
+        string PREDATA = KEY + KEY.substr(49, 54);
+        string USEKEY = "";
+        for (int i = PREDATA.length() - 1;i >= 0;i--) { USEKEY += char((PREDATA[i] + i - x - 1) * 131) % 143;x++; }
+        x = 0;
+        for (char& c : USEKEY) {
+            Seed += (int(c) * 133 + 2 * x) % 109;x++;
+        }
         mt19937 fgen(Seed);
         uniform_int_distribution<> dist(0, 99);
         uniform_int_distribution<> zdist(0, 8);
@@ -40,7 +47,7 @@ public:
         uniform_int_distribution<> ndist(0, Extended.length() - 1);
         int SaltLen = 25 + zdist(gen);
         string GenSalt, GenSalt2;
-        for(int i = 0;i<SaltLen;i++)
+        for (int i = 0;i < SaltLen;i++)
         {
             GenSalt += CHARSET[fdist(gen)];
         }
@@ -64,41 +71,77 @@ public:
             int pos = ndist(fgen);
             Marker2 += Extended[pos];
         }
-        return GenSalt +  Marker1 + orginal + CHARSET[num2] + Marker2 + GenSalt2 + CHARSET[num3];
-
+        string final = GenSalt + Marker1 + orginal + CHARSET[num2] + Marker2 + GenSalt2 + CHARSET[num3];
+        USEKEY = h.MINIHASHER(USEKEY, final.length());
+        string Balls = Bytemix(Combined);
+        for(int i = 0;i<Balls.length();i++)
+        {
+            Balls[i] <<= 2;
+        }
+        while (Balls.length() < final.length()) Balls += Balls;
+        for (int i = final.length() - 1;i >= 0;i--) {
+            unsigned char val = final[i];
+            val = (val + i + 131) & 0xFF;  // Position-dependent addition
+            int rot = (i + 1) % 8;  // Rotation amount
+            val = ((val << rot) | (val >> (8 - rot))) & 0xFF;  // Left rotate
+            final[i] = val ^ Balls[i] ^ USEKEY[i];
+        }
+        return final;
     }
+
     string RemoveRandomSalt(const string& Salted)
     {
         int Seed = 0;
-        for (char& c : KEY) Seed += int(c) * 133;
+        int x = 0;
+        string PREDATA = KEY + KEY.substr(49, 54);
+        string USEKEY = "";
+        for (int i = PREDATA.length() - 1;i >= 0;i--) { USEKEY += char((PREDATA[i] + i - x - 1) * 131) % 143;x++; }
+        x = 0;
+        for (char& c : USEKEY) {
+            Seed += (int(c) * 133 + 2 * x) % 109;x++;
+        }
+
+        // First decrypt the entire string
+        string decrypted = Salted;
+        USEKEY = h.MINIHASHER(USEKEY, decrypted.length());
+        string Balls = Bytemix(Combined);
+        for (int i = 0;i < Balls.length();i++)
+        {
+            Balls[i] <<= 2;
+        }
+         while (Balls.length() < decrypted.length()) Balls += Balls;
+        for (int i = decrypted.length() - 1;i >= 0;i--) {
+            unsigned char val = decrypted[i];
+            val = val ^ USEKEY[i] ^ Balls[i];  // Reverse XOR with key
+            int rot = (i + 1) % 8;  // Same rotation amount
+            val = ((val >> rot) | (val << (8 - rot))) & 0xFF;  // Right rotate (reverse of left)
+            val = (val - i - 131) & 0xFF;  // Reverse addition - THIS WAS MISSING
+            decrypted[i] = val;
+        }
+
+        // Now find markers in the decrypted data
         mt19937 fgen(Seed);
-
         uniform_int_distribution<> zdist(0, 8);
-        uniform_int_distribution<> fdist(0, static_cast<int>(CHARSET.length() - 1));
         uniform_int_distribution<> ndist(0, Extended.length() - 1);
-
-        int len = 3 + zdist(fgen); 
+        int len = 3 + zdist(fgen);
         string Marker1, Marker2;
         for (int i = 0; i < len; i++) Marker1 += Extended[ndist(fgen)];
         for (int i = 0; i < len; i++) Marker2 += Extended[ndist(fgen)];
 
-        size_t pos = Salted.find(Marker1);
+        size_t pos = decrypted.find(Marker1);  // Search in decrypted, not Salted
         if (pos == string::npos) return "";
-
-        string afterMarker = Salted.substr(pos + Marker1.length());
+        string afterMarker = decrypted.substr(pos + Marker1.length());  // Use decrypted
         size_t sepPos = afterMarker.find(Marker2);
         if (sepPos == string::npos || sepPos == 0) return "";
-
         string Original = afterMarker.substr(0, sepPos - 1);
         return Original;
     }
-
     string Streamer(string Data)
     {
         string DerivedKey = KEY;
         if(DerivedKey.length() < Data.length())
         {
-            DerivedKey += h.HASHER(DerivedKey, Data.length() - DerivedKey.length());
+            DerivedKey += h.MINIHASHER(DerivedKey, Data.length() - DerivedKey.length());
         }
 
         // XOR each byte
@@ -115,7 +158,7 @@ public:
         string DerivedKey = KEY;
         while (DerivedKey.length() < streamerOutput.length())
         {
-            DerivedKey += h.HASHER(DerivedKey, streamerOutput.length() - DerivedKey.length());
+            DerivedKey += h.MINIHASHER(DerivedKey, streamerOutput.length() - DerivedKey.length());
         }
 
         string originalData = "";
@@ -140,16 +183,12 @@ public:
             swap(ByteBlob[i], ByteBlob[i + 3]);
             swap(ByteBlob[i + 1], ByteBlob[i + 2]);
         }
-        for (int i = 0; i + 3 < ByteBlob.length(); i += 4)  
-        {
-            swap(ByteBlob[i], ByteBlob[i + 3]);
-            swap(ByteBlob[i + 1], ByteBlob[i + 2]);
-        }
         string RevBlob;
         for (int i = ByteBlob.length() - 1; i >= 0; i--) {
             if (ByteBlob[i] == '0') RevBlob += '1';
             else RevBlob += '0';
         }
+
         string PackedResult = "";
         for (int i = 0; i < RevBlob.length(); i += 8) {
             if (i + 7 < RevBlob.length()) {
@@ -181,11 +220,6 @@ public:
             swap(ByteBlob[i], ByteBlob[i + 3]);
             swap(ByteBlob[i + 1], ByteBlob[i + 2]);
         }
-        for (int i = 0; i + 3 < ByteBlob.length(); i += 4) {
-            swap(ByteBlob[i], ByteBlob[i + 3]);
-            swap(ByteBlob[i + 1], ByteBlob[i + 2]);
-        }
-
         string originalData = "";
         for (int i = 0; i < ByteBlob.length(); i += 8) {
             if (i + 7 < ByteBlob.length()) {
@@ -194,7 +228,6 @@ public:
                 originalData += char(bits.to_ulong());
             }
         }
-
         return originalData;
     }
     void GenerateKey(string password) {
@@ -211,7 +244,7 @@ public:
 
         mt19937 gen(seed);
         uniform_int_distribution<> dist(0, Combined.length() - 1);
-        while (password.length() < 128) {
+        while (password.length() <= 128) {
             password += Combined[dist(gen)];
         }
 
@@ -255,13 +288,14 @@ public:
         }
         // encrypted = Matrix(encrypted);
         encrypted = h.REVERSIBLEKDFRSARIPOFF(encrypted, KEY);
-        encrypted = h.Base64Encode(Streamer(encrypted));
+        encrypted = h.Base64Encode(AddRandomSalt(Streamer(encrypted)));
         return encrypted;
     }
 
     string Decrypt(const string& ciphertext, const string& password) {
         GenerateKey(password);
         string decodedCipher = h.Base64Decode(ciphertext);
+        decodedCipher = RemoveRandomSalt(decodedCipher);
         string afterStreamer = ReverseStreamer(decodedCipher);
         afterStreamer = h.REVERSIBLEKDFRSARIPOFF(afterStreamer, KEY);
         ExtendKey(afterStreamer.length());
