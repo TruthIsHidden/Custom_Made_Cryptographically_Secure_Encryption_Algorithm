@@ -162,7 +162,7 @@ string Hasher::RSProducer(string SEED) {
     for (size_t i = 0; i < SEED.length(); i++) {
         SEED[i] ^= SEED[(i + 1) % SEED.length()];  // Better initial mixing
     }
-    for (int iter = 1; iter <= 100; iter++) {
+    for (int iter = 1; iter <= 64; iter++) {
         for (size_t i = 0; i < SEED.length(); i++) {
             SEED[i] = (unsigned char)SEED[i] ^ ((((((unsigned char)SEED[i] >> (i % 6)) ^ (5 * i)) + 12 * i) * (i % SEED.length()) >> 1) % 256);
         }
@@ -203,7 +203,7 @@ string Hasher::RSProducer(string SEED) {
         for (size_t i = 0; i < final.length(); i++) {
             final[i] = (unsigned char)final[i] ^ ((unsigned char)SEED[i] >> (i % 5));
         }
-
+        
         while (SEED.length() <= final.length()) {
             SEED += SEED;
         }
@@ -470,6 +470,7 @@ string Hasher::REVERSIBLEKDFRSARIPOFF(string Orginal, string KEY)
 
     long long r = (1LL * k * k * (m - n) * (m - n) - 1LL * k * (m + n + 2)) / 2;
     long long use = r * r * r * r + (k - m);
+    mt19937 fgen(r);
     string stream = to_string(use);
     stream += HASHER(stream, KEY.length() - stream.length());
 
@@ -486,6 +487,183 @@ string Hasher::REVERSIBLEKDFRSARIPOFF(string Orginal, string KEY)
         c ^= KEY[x];
         x++;
     }
+
     return Orginal;
 }
 
+string Hasher::MINIHASHER(string key, int lenny) {
+
+    for (size_t i = 0; i < key.length(); i++)
+    {
+        uint8_t ch = (uint8_t)key[i];
+        ch = (uint8_t)(ch * 0x9E);
+        ch ^= (uint8_t)((i + 1) * 0xA7);  // Ensure non-zero for first char
+        ch ^= (uint8_t)(0x5C ^ (i * 0x2B)); // Additional position mixing
+        ch = (uint8_t)((ch << 3) | (ch >> 5));
+        key[i] = ch;
+    }
+
+    if (key.empty()) return "";
+
+    for (char& c : key) {
+        c = (unsigned char)c << 2;
+    }
+
+    string Predata = RSProducer(key);
+    key = RSProducer(key);
+
+    string intermediate;
+    string prevIntermediate;
+    string binary;
+    string post;
+    string SALT = Combined;
+
+    for (char& c : SALT) {
+        c = (unsigned char)((c << 1) | (c >> 7));
+    }
+
+    string AddSalt = ((RSProducer(SALT) + to_string(SALT.length())));
+    string PRESALT1 = RSProducer(AddSalt + key);
+    string PRESALT2 = RSProducer(key + AddSalt);
+    string PRESALT3 = RSProducer(key.substr(key.length() / 2) + AddSalt + key.substr(0, key.length() / 2));
+    string PRESALT = "";
+    for (size_t i = 0; i < min({ PRESALT1.length(), PRESALT2.length(), PRESALT3.length() }); i++) {
+        PRESALT += char(PRESALT1[i] ^ PRESALT2[i] ^ PRESALT3[i]);
+    }
+
+    for (int i = 1; i <= 16; i++) {
+        while (Predata.length() < key.length()) Predata += Predata;
+        Predata = Predata.substr(0, key.length());
+
+        while (SALT.length() < key.length()) SALT += SALT;
+        SALT = SALT.substr(0, key.length());
+
+        string currIntermediate;
+        for (size_t y = 0; y < key.length(); y++) {
+            currIntermediate.push_back((((unsigned char)key[y] ^ (unsigned char)Predata[y]) >> (i % 4)) ^ ((unsigned char)SALT[y] >> 1));
+        }
+
+        if (!prevIntermediate.empty()) {
+            for (size_t j = 0; j < currIntermediate.length() && j < prevIntermediate.length(); j++) {
+                currIntermediate[j] = (unsigned char)currIntermediate[j] ^ (unsigned char)prevIntermediate[j];
+            }
+        }
+
+        prevIntermediate = currIntermediate;
+        intermediate = currIntermediate;
+        binary = stringToBinary(intermediate);
+
+        string currentBits;
+        for (size_t m = 0; m < binary.length() - 1; m++) {
+            if (binary[m] == '0' && binary[m + 1] == '0')
+                currentBits += "11";
+            else if (binary[m] == '1' && binary[m + 1] == '1')
+                currentBits += "00";
+            else if (binary[m] == '1' && binary[m + 1] == '0')
+                currentBits += "01";
+            else if (binary[m] == '0' && binary[m + 1] == '1')
+                currentBits += "10";
+        }
+
+        if (post.empty()) {
+            post = currentBits;
+        }
+        else {
+            for (size_t z = 0; z < currentBits.size(); z++) {
+                if (z >= post.size())
+                    post.push_back(currentBits[z]);
+                else
+                    post[z] = ((post[z] - '0') ^ (currentBits[z] - '0')) + '0';
+            }
+        }
+
+        vector<uint32_t> entropySeed;
+        entropySeed.push_back(static_cast<uint32_t>(post.length()));
+        entropySeed.push_back(static_cast<uint32_t>(AddSalt.length()));
+        entropySeed.push_back(static_cast<uint32_t>(PRESALT.length()));
+
+        for (int idx = 0; idx < 10 && idx < (int)post.length(); ++idx)
+            entropySeed.push_back(static_cast<uint32_t>((unsigned char)post[idx]));
+        for (int idx = 0; idx < 10 && idx < (int)AddSalt.length(); ++idx)
+            entropySeed.push_back(static_cast<uint32_t>((unsigned char)AddSalt[idx]));
+        for (int idx = 0; idx < 10 && idx < (int)PRESALT.length(); ++idx)
+            entropySeed.push_back(static_cast<uint32_t>((unsigned char)PRESALT[idx]));
+
+        seed_seq S(entropySeed.begin(), entropySeed.end());
+        mt19937 s(S);
+        uniform_int_distribution<int> dist(1, 7);
+        uniform_int_distribution<int> ndist(1, 4);
+        uniform_int_distribution<int> fdist(0, 2);
+
+        post = PRESALT + post;
+        post += AddSalt;
+        SALT = RSProducer(intermediate);
+
+        for (char& c : SALT) {
+            c = c << (i % 8);
+        }
+
+        AddSalt = RSProducer(binary);
+        for (char& c : AddSalt) {
+            int shift = 1 + (binary[(i + 1) % binary.length()] - '0'); // 1 or 2
+            unsigned char uc = static_cast<unsigned char>(c);
+            uc = static_cast<unsigned char>(uc >> shift);
+            c = static_cast<char>(uc);
+        }
+
+        PRESALT = RSProducer(AddSalt);
+        for (char& c : PRESALT) {
+            c = (unsigned char)c >> 1;
+        }
+
+        int saltLen = dist(s);
+        AddSalt = AddSalt.substr(0, min(saltLen, (int)AddSalt.length()));
+        PRESALT = PRESALT.substr(0, min(saltLen, (int)PRESALT.length()));
+
+        for (size_t m = 0; m < PRESALT.length(); m++) {
+            PRESALT[m] = ((((((((unsigned char)PRESALT[m] << 1) * i % 251) >> (m % 8)) + (i - (int)m) * 2 % max(1, (int)PRESALT.length())) >> (i % 2)) + 13) >> 1) % 256;
+        }
+
+        for (size_t m = 0; m < post.length(); m++) {
+            post[m] = (unsigned char)post[m] ^ ((((((unsigned char)intermediate[m % intermediate.size()] << 1) | ((unsigned char)intermediate[m % intermediate.size()] >> 7) + (i * 3) << 1) % 256)));
+        }
+
+        if (post.length() % 8 == 0) {
+            if (post.length() < 7) {
+                post.append("!@3?f-+R}{|" + char((PRESALT[i % PRESALT.length()])) - 2);
+            }
+            else {
+                int reduction = ndist(s);
+                post = post.substr(0, post.length() - min(reduction, (int)post.length()));
+            }
+        }
+
+        if (post.length() % 16 == 0) {
+            post = KDFRSARIPOFF(post, AddSalt);
+            int ind = 0;
+            for (char& c : post)
+            {
+                c = c - (ndist(s) + 2);
+            }
+        }
+        if (i % 8) {
+            for (char& c : PRESALT) {
+                c = (unsigned char)c << (1 + fdist(s));
+            }
+        }
+        if (i % 9) {
+            for (char& c : post) {
+                unsigned char uc = (unsigned char)c;
+                uc = (unsigned char)((uc >> 1) | (uc << 7)); // ROTR1
+                c = (char)uc;
+            }
+        }
+
+        if (i % 16 == 0) post = Bytemix(post);
+    }
+    while (post.length() < lenny) {
+        post += RSProducer(post + post[40 % (post.length() / 2)]);
+    }
+
+    return Base64Encode(post.substr(0, lenny));
+}
