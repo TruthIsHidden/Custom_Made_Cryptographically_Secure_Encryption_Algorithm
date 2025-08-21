@@ -24,8 +24,6 @@ private:
     string KDFProduceEncryptStream(long long r, int len, string content);
     string Bytemix(string Data);
     string XORPairs(const string& input);
-    bool IsPrimeOptimized(long long num);
-    long long findclosestprimeFast(long long Base);
 
 
 public:
@@ -36,6 +34,8 @@ public:
     string Base64Decode(const string& input);
     string REVERSIBLEKDFRSARIPOFF(string Orginal, string KEY);
     string MINIHASHER(string key, int lenny);
+    string DimensionalMix(string Orginal, string KEY);
+    string RDimensionalMix(string Mixed, string KEY);
     
 
     // void RunCollisionTest(int l);  // Future implementation
