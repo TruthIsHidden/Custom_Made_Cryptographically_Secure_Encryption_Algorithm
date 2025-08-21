@@ -1,10 +1,14 @@
 #include "Hasher.h"
+#include <algorithm>
+
 
 const string CHARSET = " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~";
 const string Extended = " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~"
 "€‚ƒ„…†‡ˆ‰Š‹ŒŽ''""•–—˜™š›œžŸ ¡¢£¤¥¦§¨©ª«¬­®¯°±²³´µ¶·¸¹º»¼½¾¿"
 "ÀÁÂÃÄÅÆÇÈÉÊËÌÍÎÏÐÑÒÓÔÕÖ×ØÙÚÛÜÝÞßàáâãäåæçèéêëìíîïðñòóôõö÷øùúûüýþÿ";
 const string Combined = CHARSET + Extended;
+const int BlockSize = 2;
+
 
 bool Hasher::IsPrime(int num) {
     if (num < 2) return false;
@@ -212,181 +216,127 @@ string Hasher::RSProducer(string SEED) {
     return final.substr(0, min((size_t)32, final.length()));
 }
 
-string Hasher::HASHER(string key, int lenny){
-    
-    for (size_t i = 0; i < key.length(); i++)
-    {
+string Hasher::HASHER(string key, int lenny) {
+    if (key.empty()) return "";
+
+    // --- Initial byte-level mixing ---
+    for (size_t i = 0; i < key.length(); i++) {
         uint8_t ch = (uint8_t)key[i];
         ch = (uint8_t)(ch * 0x9E);
-        ch ^= (uint8_t)((i + 1) * 0xA7);  // Ensure non-zero for first char
-        ch ^= (uint8_t)(0x5C ^ (i * 0x2B)); // Additional position mixing
+        ch ^= (uint8_t)((i + 1) * 0xA7);
+        ch ^= (uint8_t)(0x5C ^ (i * 0x2B));
         ch = (uint8_t)((ch << 3) | (ch >> 5));
         key[i] = ch;
     }
 
-    if (key.empty()) return "";
+    // Shift all chars left once
+    for (char& c : key) c = (unsigned char)c << 2;
 
-    for (char& c : key) {
-        c = (unsigned char)c << 2;
-    }
-
+    // Precompute RSProducer once for key and SALT
     string Predata = RSProducer(key);
-    key = RSProducer(key);
-
-    string intermediate;
-    string prevIntermediate;
-    string binary;
-    string post;
     string SALT = Combined;
+    for (char& c : SALT) c = (unsigned char)((c << 1) | (c >> 7));
 
-    for (char& c : SALT) {
-        c = (unsigned char)((c << 1) | (c >> 7));
-    }
-
-    string AddSalt = ((RSProducer(SALT) + to_string(SALT.length())));
+    string AddSalt = RSProducer(SALT) + to_string(SALT.length());
     string PRESALT1 = RSProducer(AddSalt + key);
     string PRESALT2 = RSProducer(key + AddSalt);
     string PRESALT3 = RSProducer(key.substr(key.length() / 2) + AddSalt + key.substr(0, key.length() / 2));
-    string PRESALT = "";
-    for (size_t i = 0; i < min({ PRESALT1.length(), PRESALT2.length(), PRESALT3.length() }); i++) {
-        PRESALT += char(PRESALT1[i] ^ PRESALT2[i] ^ PRESALT3[i]);
-    }
 
-    for (int i = 1; i <= 64; i++) {
+    // Safe PRESALT construction without min()
+    size_t presaltLen = PRESALT1.length();
+    if (PRESALT2.length() < presaltLen) presaltLen = PRESALT2.length();
+    if (PRESALT3.length() < presaltLen) presaltLen = PRESALT3.length();
+    string PRESALT;
+    PRESALT.reserve(presaltLen);
+    for (size_t i = 0; i < presaltLen; i++)
+        PRESALT.push_back(PRESALT1[i] ^ PRESALT2[i] ^ PRESALT3[i]);
+
+    string prevIntermediate;
+    string intermediate;
+    string post;
+
+    // --- Main 32-round diffusion ---
+    for (int round = 1; round <= 32; round++) {
+        // --- Deterministic expansion to avoid growth explosion ---
         while (Predata.length() < key.length()) Predata += Predata;
-        Predata = Predata.substr(0, key.length());
+        if (Predata.length() > key.length()) Predata.resize(key.length());
 
         while (SALT.length() < key.length()) SALT += SALT;
-        SALT = SALT.substr(0, key.length());
+        if (SALT.length() > key.length()) SALT.resize(key.length());
 
-        string currIntermediate;
-        for (size_t y = 0; y < key.length(); y++) {
-            currIntermediate.push_back((((unsigned char)key[y] ^ (unsigned char)Predata[y]) >> (i % 4)) ^ ((unsigned char)SALT[y] >> 1));
+        // Intermediate computation
+        intermediate.resize(key.length());
+        for (size_t i = 0; i < key.length(); i++) {
+            intermediate[i] = (((unsigned char)key[i] ^ (unsigned char)Predata[i]) >> (round % 4))
+                ^ ((unsigned char)SALT[i] >> 1);
         }
 
+        // Diffuse with previous round safely
         if (!prevIntermediate.empty()) {
-            for (size_t j = 0; j < currIntermediate.length() && j < prevIntermediate.length(); j++) {
-                currIntermediate[j] = (unsigned char)currIntermediate[j] ^ (unsigned char)prevIntermediate[j];
-            }
+            for (size_t i = 0; i < intermediate.size(); i++)
+                intermediate[i] ^= prevIntermediate[i % prevIntermediate.size()];
+        }
+        prevIntermediate = intermediate;
+
+        // Binary transform and post-mix
+        string binary = stringToBinary(intermediate);
+        string currBits;
+        currBits.reserve(binary.length());
+        for (size_t i = 0; i + 1 < binary.length(); i++) {
+            if (binary[i] == '0' && binary[i + 1] == '0') currBits += "11";
+            else if (binary[i] == '1' && binary[i + 1] == '1') currBits += "00";
+            else if (binary[i] == '1' && binary[i + 1] == '0') currBits += "01";
+            else currBits += "10";
         }
 
-        prevIntermediate = currIntermediate;
-        intermediate = currIntermediate;
-        binary = stringToBinary(intermediate);
-
-        string currentBits;
-        for (size_t m = 0; m < binary.length() - 1; m++) {
-            if (binary[m] == '0' && binary[m + 1] == '0')
-                currentBits += "11";
-            else if (binary[m] == '1' && binary[m + 1] == '1')
-                currentBits += "00";
-            else if (binary[m] == '1' && binary[m + 1] == '0')
-                currentBits += "01";
-            else if (binary[m] == '0' && binary[m + 1] == '1')
-                currentBits += "10";
-        }
-
+        // Safe XOR with previous post
         if (post.empty()) {
-            post = currentBits;
+            post = currBits;
         }
         else {
-            for (size_t z = 0; z < currentBits.size(); z++) {
-                if (z >= post.size())
-                    post.push_back(currentBits[z]);
-                else
-                    post[z] = ((post[z] - '0') ^ (currentBits[z] - '0')) + '0';
+            string newPost;
+            newPost.reserve(currBits.size());
+            for (size_t i = 0; i < currBits.size(); i++) {
+                char existing = (i < post.size()) ? post[i] : 0;
+                newPost.push_back(((existing - '0') ^ (currBits[i] - '0')) + '0');
             }
+            post = std::move(newPost);
         }
 
-        vector<uint32_t> entropySeed;
-        entropySeed.push_back(static_cast<uint32_t>(post.length()));
-        entropySeed.push_back(static_cast<uint32_t>(AddSalt.length()));
-        entropySeed.push_back(static_cast<uint32_t>(PRESALT.length()));
+        // Controlled salt mixing & position-dependent transformations
+        string entropySeed;
+        size_t esLen = 10;
+        for (size_t j = 0; j < post.size() && j < esLen; j++) entropySeed += post[j];
+        for (size_t j = 0; j < AddSalt.size() && j < esLen; j++) entropySeed += AddSalt[j];
+        for (size_t j = 0; j < PRESALT.size() && j < esLen; j++) entropySeed += PRESALT[j];
 
-        for (int idx = 0; idx < 10 && idx < (int)post.length(); ++idx)
-            entropySeed.push_back(static_cast<uint32_t>((unsigned char)post[idx]));
-        for (int idx = 0; idx < 10 && idx < (int)AddSalt.length(); ++idx)
-            entropySeed.push_back(static_cast<uint32_t>((unsigned char)AddSalt[idx]));
-        for (int idx = 0; idx < 10 && idx < (int)PRESALT.length(); ++idx)
-            entropySeed.push_back(static_cast<uint32_t>((unsigned char)PRESALT[idx]));
+        for (size_t i = 0; i < post.size(); i++)
+            post[i] ^= intermediate[i % intermediate.size()] ^ PRESALT[i % PRESALT.size()];
 
-        seed_seq S(entropySeed.begin(), entropySeed.end());
-        mt19937 s(S);
-        uniform_int_distribution<int> dist(1, 7);
-        uniform_int_distribution<int> ndist(1, 4);
-        uniform_int_distribution<int> fdist(0, 2);
-
-        post = PRESALT + post;
-        post += AddSalt;
-        SALT = RSProducer(intermediate);
-
-        for (char& c : SALT) {
-            c = c << (i%8);
-        }
-
-        AddSalt = RSProducer(binary);
-        for (char& c : AddSalt) {
-            int shift = 1 + (binary[(i + 1) % binary.length()] - '0'); // 1 or 2
-            unsigned char uc = static_cast<unsigned char>(c);
-            uc = static_cast<unsigned char>(uc >> shift);
-            c = static_cast<char>(uc);
-        }
-
-        PRESALT = RSProducer(AddSalt);
-        for (char& c : PRESALT) {
-            c = (unsigned char)c >> 1;
-        }
-
-        int saltLen = dist(s);
-        AddSalt = AddSalt.substr(0, min(saltLen, (int)AddSalt.length()));
-        PRESALT = PRESALT.substr(0, min(saltLen, (int)PRESALT.length()));
-
-        for (size_t m = 0; m < PRESALT.length(); m++) {
-            PRESALT[m] = ((((((((unsigned char)PRESALT[m] << 1) * i % 251) >> (m % 8)) + (i - (int)m) * 2 % max(1, (int)PRESALT.length())) >> (i % 2)) + 13) >> 1) % 256;
-        }
-
-        for (size_t m = 0; m < post.length(); m++) {
-            post[m] = (unsigned char)post[m] ^ ((((((unsigned char)intermediate[m % intermediate.size()] << 1) | ((unsigned char)intermediate[m % intermediate.size()] >> 7) + (i * 3) << 1) % 256)));
-        }
-
-        if (post.length() % 8 == 0) {
-            if (post.length() < 7) {
-                post.append("!@3?f-+R}{|" + char((PRESALT[i % PRESALT.length()])) - 2);
-            }
-            else {
-                int reduction = ndist(s);
-                post = post.substr(0, post.length() - min(reduction, (int)post.length()));
-            }
-        }
-
-        if (post.length() % 16 == 0) {
-            post = KDFRSARIPOFF(post, AddSalt);
-            int ind = 0;
-            for(char &c: post)
-            {
-                c = c - (ndist(s) + 2);
-            }
-        }
-        if (i % 8) {
-            for (char& c : PRESALT) {
-                c = (unsigned char)c << (1 + fdist(s));
-            }
-        }
-        if (i % 9) {
+        // Occasional byte-level rotations and Bytemix
+        if (round % 9 == 0) {
             for (char& c : post) {
                 unsigned char uc = (unsigned char)c;
-                uc = (unsigned char)((uc >> 1) | (uc << 7)); // ROTR1
-                c = (char)uc;
+                c = (char)((uc >> 1) | (uc << 7));
             }
         }
-
-        if (i % 16 == 0) post = Bytemix(post);
-    }
-    while (post.length() < lenny) {
-        post += RSProducer(post + post[40 % (post.length() / 2)]);
+        if (round % 16 == 0) post = Bytemix(post);
     }
 
-    return Base64Encode(post.substr(0, lenny));
+    // --- Final expansion to exact length ---
+    size_t targetLength = static_cast<size_t>(lenny);
+    size_t iteration = 0;
+    const size_t maxIterations = 4;
+    while (post.length() < targetLength && iteration < maxIterations) {
+        size_t len = (post.length() < 32) ? post.length() : 32;
+        if (len == 0) break;
+        string segment = post.substr(0, len);
+        post += RSProducer(segment);
+        iteration++;
+    }
+    if (post.length() > targetLength) post.resize(targetLength);
+
+    return Base64Encode(post);
 }
 
 string Hasher::KDFRSARIPOFF(string content, string key) {
@@ -666,4 +616,94 @@ string Hasher::MINIHASHER(string key, int lenny) {
     }
 
     return Base64Encode(post.substr(0, lenny));
+}
+string Hasher::DimensionalMix(string Original, string KEY)
+{
+    // BlockSize = 2: 2x2 matrix = 4 positions, 2 for data, 2 for key
+    int dataPerBlock = (BlockSize * BlockSize) / 2;  
+    int NoBlocks = (Original.length() + dataPerBlock - 1) / dataPerBlock;
+    string final;
+    for (int block = 0; block < NoBlocks; block++)
+    {
+        vector<vector<char>> MBlock(BlockSize, vector<char>(BlockSize, 0));
+        int startIdx = block * dataPerBlock;
+        for (int j = 0; j < BlockSize; j++) {
+            int globalIdx = startIdx + j;
+            if (globalIdx < Original.length()) {
+                MBlock[0][j] = Original[globalIdx];
+            }
+            else {
+                MBlock[0][j] = 0;
+            }
+        }
+        for (int j = 0; j < BlockSize; j++) {
+            int keyIdx = (startIdx + j) % KEY.length();
+            MBlock[1][j] = KEY[keyIdx];
+        }
+        int Sze = MBlock.size();
+        for (int i = 0; i + 1 < Sze; i++)
+            for (int j = 0; j + 1 < Sze; j++)
+                swap(MBlock[i][j], MBlock[i + 1][j + 1]);
+        // 2. Transpose: [0,1] ↔ [1,0]  
+        for (int i = 0; i < Sze; i++)
+            for (int j = i + 1; j < Sze; j++)
+                swap(MBlock[i][j], MBlock[j][i]);
+        
+        /*for (int i = 0; i < Sze; i++) {
+            for (int j = 0; j < Sze; j++) {
+                if (i != j) {  // Skip diagonal elements to prevent data loss
+                    MBlock[i][j] ^= MBlock[j][i];
+                }
+            }
+        }
+        */
+        for (int i = 0; i < Sze;i++)
+            for (int j = 0;j < i;j++)
+                MBlock[i][j] ^= MBlock[j][i];
+
+        for (int i = 0; i < Sze; i++)
+            for (int j = 0; j < Sze; j++)
+                final.push_back(MBlock[i][j]);
+    }
+    return final;
+}
+
+string Hasher::RDimensionalMix(string Mixed, string KEY) {
+    int NoBlocks = Mixed.length() / (BlockSize * BlockSize);  // / 4
+    string final;
+    for (int block = 0; block < NoBlocks; block++) {
+        vector<vector<char>> MBlock(BlockSize, vector<char>(BlockSize));
+        int index = block * 4;
+        for (int i = 0; i < BlockSize; i++) {
+            for (int j = 0; j < BlockSize; j++) {
+                MBlock[i][j] = Mixed[index++];
+            }
+        }
+        int Sze = MBlock.size();
+        // Reverse operations in exact opposite order:
+        // 4. Reverse modified symmetric XOR
+        /*
+        for (int i = 0; i < Sze; i++) {
+            for (int j = 0; j < Sze; j++) {
+                if (i != j) {  // Skip diagonal elements (same as forward)
+                    MBlock[i][j] ^= MBlock[j][i];
+                }
+            }
+        }
+        */
+        for (int i = 0; i < Sze;i++)
+            for (int j = 0;j < i;j++)
+                MBlock[i][j] ^= MBlock[j][i];
+        // 3. Skip XOR loop (does nothing)
+        for (int i = 0; i < Sze; i++)
+            for (int j = i + 1; j < Sze; j++)
+                swap(MBlock[i][j], MBlock[j][i]);
+        for (int i = 0; i + 1 < Sze; i++)
+            for (int j = 0; j + 1 < Sze; j++)
+                swap(MBlock[i][j], MBlock[i + 1][j + 1]);
+        for (int j = 0; j < BlockSize; j++) {
+            final.push_back(MBlock[0][j]);
+        }
+    }
+    return final;
 }
