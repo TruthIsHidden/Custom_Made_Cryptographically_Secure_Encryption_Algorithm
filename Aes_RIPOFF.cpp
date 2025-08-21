@@ -27,6 +27,47 @@ private:
     const string Combined = CHARSET + Extended;
 public:
 
+    string ImplementMac(string Orginal)
+    {
+        return h.MINIHASHER(Orginal, 9) + "::" + Orginal;
+    }
+    string VerifyMac(string Combined)
+    {
+        size_t npos = Combined.find("::");
+        string Hash = Combined.substr(0, npos);
+        Combined = Combined.substr(npos + 2);
+        if(Hash != h.MINIHASHER(Combined, 9))
+        {
+            cout << "Tampered";
+            exit(0);
+        }
+        return Combined;
+    }
+    string IndependentSalt(string Orginal)
+    {
+        random_device rd;
+        mt19937 gen(rd());
+        uniform_int_distribution<> dist(0, Combined.length()-1);
+
+        string Final;
+        for(int i = 0;i<6;i++)
+        {
+            Final += Combined[dist(gen)];
+        }
+        Final += ":\xf:" + Orginal;
+        Final = Bytemix(Final);
+        return Final;
+
+    }
+    string RemoveIndependentSalt(string Salted)
+    {
+        string Final;
+        Salted = ReverseByteMix(Salted);
+        size_t npos = Salted.find(":\xf:");
+        Final = Salted;
+        Final = Final.substr(npos + 4);        
+        return Final;
+    }
     string AddRandomSalt(string orginal)
     {
         random_device rd;
@@ -42,10 +83,10 @@ public:
         }
         mt19937 fgen(Seed);
         uniform_int_distribution<> dist(0, 99);
-        uniform_int_distribution<> zdist(0, 8);
+        uniform_int_distribution<> zdist(0, 4);
         uniform_int_distribution<> fdist(0, static_cast<int>(CHARSET.length() - 1));
         uniform_int_distribution<> ndist(0, Extended.length() - 1);
-        int SaltLen = 25 + zdist(gen);
+        int SaltLen = 3 + zdist(gen);
         string GenSalt, GenSalt2;
         for (int i = 0;i < SaltLen;i++)
         {
@@ -121,7 +162,7 @@ public:
 
         // Now find markers in the decrypted data
         mt19937 fgen(Seed);
-        uniform_int_distribution<> zdist(0, 8);
+        uniform_int_distribution<> zdist(0, 4);
         uniform_int_distribution<> ndist(0, Extended.length() - 1);
         int len = 3 + zdist(fgen);
         string Marker1, Marker2;
@@ -136,99 +177,98 @@ public:
         string Original = afterMarker.substr(0, sepPos - 1);
         return Original;
     }
-    string Streamer(string Data)
-    {
-        string DerivedKey = KEY;
-        if(DerivedKey.length() < Data.length())
+    string Streamer(string Data) {
+        string D_Key = KEY;
+        for (int i = D_Key.length() - 1;i >= 0;i--) D_Key[i] = ((((D_Key[i] + 43) + i) * 5) - 40) % 125;
+        Data += "\x1F\x0B\x0E";
+        if(Data.length() % 2 != 0)
         {
-            DerivedKey += h.MINIHASHER(DerivedKey, Data.length() - DerivedKey.length());
+            Data += h.MINIHASHER(Data + D_Key, (2 - (Data.length() % 2)));
         }
-
-        // XOR each byte
-        for (size_t i = 0; i < Data.length(); i++)
-        {
-            Data[i] ^= DerivedKey[i];
-        }
-
+        D_Key = h.MINIHASHER(D_Key, Data.length());
+        Data = Bytemix(h.DimensionalMix(Data, D_Key));
         return Data;
     }
 
-    string ReverseStreamer(string streamerOutput)
-    {
-        string DerivedKey = KEY;
-        while (DerivedKey.length() < streamerOutput.length())
-        {
-            DerivedKey += h.MINIHASHER(DerivedKey, streamerOutput.length() - DerivedKey.length());
-        }
-
-        string originalData = "";
-        for (size_t i = 0; i < streamerOutput.length(); i++)
-        {
-            originalData += char(streamerOutput[i] ^ DerivedKey[i]);
-        }
-
+    string ReverseStreamer(string streamerOutput) {
+        string D_Key = KEY;
+        streamerOutput = ReverseByteMix(streamerOutput);
+        for (int i = D_Key.length() - 1;i >= 0;i--) D_Key[i] = ((((D_Key[i] + 43) + i) * 5) - 40) % 125;
+        D_Key = h.MINIHASHER(D_Key, streamerOutput.length());
+        string originalData = h.RDimensionalMix(streamerOutput, D_Key);
+        size_t npos = originalData.find("\x1F\x0B\x0E");
+        originalData = originalData.substr(0, npos);
         return originalData;
     }
     string Bytemix(string Data)
     {
-        string ByteBlob;
-        for(char &c: Data)
+        vector<char> bits(Data.size() * 8);
+
+        // Fill bit vector directly
+        for (size_t i = 0; i < Data.size(); ++i)
         {
-            bitset<8> binary(c);
-            ByteBlob += binary.to_string();
+            for (int b = 0; b < 8; ++b)
+                bits[i * 8 + b] = ((Data[i] >> (7 - b)) & 1) ? 1 : 0;
         }
 
-        for (int i = 0; i + 3 < ByteBlob.length(); i += 4)  
+        // 4-bit swap
+        for (size_t i = 0; i + 3 < bits.size(); i += 4)
         {
-            swap(ByteBlob[i], ByteBlob[i + 3]);
-            swap(ByteBlob[i + 1], ByteBlob[i + 2]);
-        }
-        string RevBlob;
-        for (int i = ByteBlob.length() - 1; i >= 0; i--) {
-            if (ByteBlob[i] == '0') RevBlob += '1';
-            else RevBlob += '0';
+            swap(bits[i], bits[i + 3]);
+            swap(bits[i + 1], bits[i + 2]);
         }
 
-        string PackedResult = "";
-        for (int i = 0; i < RevBlob.length(); i += 8) {
-            if (i + 7 < RevBlob.length()) {
-                string byte = RevBlob.substr(i, 8);
-                bitset<8> bits(byte);
-                PackedResult += char(bits.to_ulong());
-            }
+        // Reverse and flip bits in-place
+        size_t n = bits.size();
+        for (size_t i = 0; i < n / 2; ++i)
+            swap(bits[i], bits[n - 1 - i]);
+        for (size_t i = 0; i < n; ++i)
+            bits[i] ^= 1;
+
+        // Pack bits back into bytes
+        for (size_t i = 0; i < Data.size(); ++i)
+        {
+            char val = 0;
+            for (int b = 0; b < 8; ++b)
+                val |= bits[i * 8 + b] << (7 - b);
+            Data[i] = val;
         }
-        return PackedResult;
+
+        return Data; // no extra copies created
     }
 
-    string ReverseByteMix(string PackedData)
+    string ReverseByteMix(string Data)
     {
-        string RevBlob = "";
-        for (char& c : PackedData)
+        vector<char> bits(Data.size() * 8);
+
+        // Expand bytes into bits
+        for (size_t i = 0; i < Data.size(); ++i)
+            for (int b = 0; b < 8; ++b)
+                bits[i * 8 + b] = ((Data[i] >> (7 - b)) & 1) ? 1 : 0;
+
+        // Flip bits and reverse
+        for (size_t i = 0; i < bits.size(); ++i)
+            bits[i] ^= 1;
+        size_t n = bits.size();
+        for (size_t i = 0; i < n / 2; ++i)
+            swap(bits[i], bits[n - 1 - i]);
+
+        // Reverse 4-bit swaps
+        for (size_t i = 0; i + 3 < bits.size(); i += 4)
         {
-            bitset<8> binary(c);
-            RevBlob += binary.to_string();
+            swap(bits[i], bits[i + 3]);
+            swap(bits[i + 1], bits[i + 2]);
         }
 
-        string ByteBlob;
-
-        for (int i = RevBlob.length() - 1; i >= 0; i--) {
-            if (RevBlob[i] == '0') ByteBlob += '1';
-            else ByteBlob += '0';
+        // Pack bits back into bytes
+        for (size_t i = 0; i < Data.size(); ++i)
+        {
+            char val = 0;
+            for (int b = 0; b < 8; ++b)
+                val |= bits[i * 8 + b] << (7 - b);
+            Data[i] = val;
         }
-
-        for (int i = 0; i + 3 < ByteBlob.length(); i += 4) {
-            swap(ByteBlob[i], ByteBlob[i + 3]);
-            swap(ByteBlob[i + 1], ByteBlob[i + 2]);
-        }
-        string originalData = "";
-        for (int i = 0; i < ByteBlob.length(); i += 8) {
-            if (i + 7 < ByteBlob.length()) {
-                string byte = ByteBlob.substr(i, 8);
-                bitset<8> bits(byte);
-                originalData += char(bits.to_ulong());
-            }
-        }
-        return originalData;
+        return Data;
     }
     void GenerateKey(string password) {
         int seed = 0;
@@ -279,32 +319,26 @@ public:
         GenerateKey(password);
         plaintext = AddRandomSalt(plaintext);
         plaintext = Bytemix(plaintext);
-        GenerateKey(password);
+        plaintext = IndependentSalt(plaintext);
+        plaintext = h.DimensionalMix(plaintext, KEY);
         ExtendKey(plaintext.length());
-
         string encrypted = plaintext;
-        for (size_t i = 0; i < encrypted.length(); i++) {
-            encrypted[i] ^= KEY[i];
-        }
-        // encrypted = Matrix(encrypted);
         encrypted = h.REVERSIBLEKDFRSARIPOFF(encrypted, KEY);
-        encrypted = h.Base64Encode(AddRandomSalt(Streamer(encrypted)));
+        encrypted = h.Base64Encode(encrypted);
+        encrypted = ImplementMac(encrypted);
         return encrypted;
     }
 
     string Decrypt(const string& ciphertext, const string& password) {
         GenerateKey(password);
-        string decodedCipher = h.Base64Decode(ciphertext);
-        decodedCipher = RemoveRandomSalt(decodedCipher);
-        string afterStreamer = ReverseStreamer(decodedCipher);
-        afterStreamer = h.REVERSIBLEKDFRSARIPOFF(afterStreamer, KEY);
+        string decodedCipher = VerifyMac(ciphertext);
+        decodedCipher = h.Base64Decode(decodedCipher);
+        string afterStreamer = h.REVERSIBLEKDFRSARIPOFF(decodedCipher, KEY);
         ExtendKey(afterStreamer.length());
-
-        // Step 5: XOR to get final plaintext
         string decrypted = afterStreamer;
-        for (size_t i = 0; i < decrypted.length(); i++) {
-            decrypted[i] ^= KEY[i];
-        }
+
+        decrypted = h.RDimensionalMix(decrypted, KEY);
+        decrypted = RemoveIndependentSalt(decrypted);
         decrypted = ReverseByteMix(decrypted);
         return RemoveRandomSalt(decrypted);
     }
