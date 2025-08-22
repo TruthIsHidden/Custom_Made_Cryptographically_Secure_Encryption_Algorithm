@@ -24,7 +24,7 @@ private:
     string KDFProduceEncryptStream(long long r, int len, string content);
     string Bytemix(string Data);
     string XORPairs(const string& input);
-
+    int modInverse(int a, int m);
 
 public:
     // Public interface - only declarations
@@ -36,7 +36,7 @@ public:
     string MINIHASHER(string key, int lenny);
     string DimensionalMix(string Orginal, string KEY);
     string RDimensionalMix(string Mixed, string KEY);
-    
+    void GenerateInvSBox();    
 
     // void RunCollisionTest(int l);  // Future implementation
 };
