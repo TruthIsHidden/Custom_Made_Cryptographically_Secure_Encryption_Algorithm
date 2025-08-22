@@ -25,6 +25,17 @@ private:
                          "€‚ƒ„…†‡ˆ‰Š‹ŒŽ''""•–—˜™š›œžŸ ¡¢£¤¥¦§¨©ª«¬­®¯°±²³´µ¶·¸¹º»¼½¾¿"
         "ÀÁÂÃÄÅÆÇÈÉÊËÌÍÎÏÐÑÒÓÔÕÖ×ØÙÚÛÜÝÞßàáâãäåæçèéêëìíîïðñòóôõö÷øùúûüýþÿ";
     const string Combined = CHARSET + Extended;
+    int SBox[256] = { 1,133,84,252,17,126,159,177,34,59,138,108,24,185,131,174,249,243,171,112,5,
+180,241,110,43,181,183,156,132,157,160,90,158,10,217,147,190,54,238,77,152,56,232,145,105,221,
+149,37,125,109,55,226,250,220,96,204,22,165,162,196,85,28,134,124,137,142,8,229,52,11,16,114,
+170,202,57,51,3,169,224,95,178,123,176,139,188,153,197,21,151,129,70,101,98,215,72,155,66,74,
+113,107,150,44,206,89,40,205,172,29,198,20,75,128,223,245,19,167,47,41,182,228,64,26,27,62,179,
+140,81,234,100,208,23,25,218,239,222,2,38,236,127,195,93,6,50,184,154,13,97,144,240,242,211,106
+,87,39,175,82,148,166,187,32,191,213,122,67,130,244,49,35,46,143,78,76,116,168,141,247,94,103,163,
+237,0,121,45,201,63,248,203,9,119,61,104,7,231,33,92,80,233,253,200,186,99,219,79,230,83,193,
+146,214,235,14,60,73,209,31,255,18,117,12,227,210,194,4,164,42,192,225,71,69,118,212,135,88,30,
+115,53,91,161,207,199,36,254,48,65,68,102,86,111,216,136,120,58,15,189,251,246,173 };
+
 public:
 
     string ImplementMac(string Orginal)
@@ -272,8 +283,12 @@ public:
     }
     void GenerateKey(string password) {
         int seed = 0;
+        for(char &c: password)
+        {
+            c = SBox[c];
+        }
         string seedSource = h.HASHER(password + Combined, password.length() / 2);
-
+        
         int x = 0;
         for (char& c : seedSource) {
             if ((c - x) < 0) seed += int(c) * 1391 + ((x + c) * -(c - x));
@@ -307,8 +322,7 @@ public:
 
         KEY = password;
     }
-
-
+    
     void ExtendKey(size_t targetLength) {
         if (KEY.length() < targetLength) {
             string extension = h.HASHER(KEY, targetLength - KEY.length());
@@ -321,6 +335,7 @@ public:
         plaintext = Bytemix(plaintext);
         plaintext = IndependentSalt(plaintext);
         plaintext = h.DimensionalMix(plaintext, KEY);
+        plaintext = Bytemix(plaintext);
         ExtendKey(plaintext.length());
         string encrypted = plaintext;
         encrypted = h.REVERSIBLEKDFRSARIPOFF(encrypted, KEY);
@@ -336,7 +351,7 @@ public:
         string afterStreamer = h.REVERSIBLEKDFRSARIPOFF(decodedCipher, KEY);
         ExtendKey(afterStreamer.length());
         string decrypted = afterStreamer;
-
+        decrypted = ReverseByteMix(decrypted);
         decrypted = h.RDimensionalMix(decrypted, KEY);
         decrypted = RemoveIndependentSalt(decrypted);
         decrypted = ReverseByteMix(decrypted);
