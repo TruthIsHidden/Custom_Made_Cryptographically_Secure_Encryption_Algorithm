@@ -24,6 +24,7 @@ private:
     const string Extended = " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~"
                          "€‚ƒ„…†‡ˆ‰Š‹ŒŽ''""•–—˜™š›œžŸ ¡¢£¤¥¦§¨©ª«¬­®¯°±²³´µ¶·¸¹º»¼½¾¿"
         "ÀÁÂÃÄÅÆÇÈÉÊËÌÍÎÏÐÑÒÓÔÕÖ×ØÙÚÛÜÝÞßàáâãäåæçèéêëìíîïðñòóôõö÷øùúûüýþÿ";
+    const char CONTROL_CHARS[8] = {'\x00', '\x01', '\x02', '\x03', '\x04', '\x05', '\x06', '\x07'};
     const string Combined = CHARSET + Extended;
     int SBox[256] = { 1,133,84,252,17,126,159,177,34,59,138,108,24,185,131,174,249,243,171,112,5,
 180,241,110,43,181,183,156,132,157,160,90,158,10,217,147,190,54,238,77,152,56,232,145,105,221,
@@ -40,14 +41,14 @@ public:
     
     string ImplementMac(string Orginal)
     {
-        return h.MINIHASHER(Orginal, 9) + "::" + Orginal;
+        return h.MINIHASHER(KEY + Orginal + KEY, 9) + ":" + Orginal;
     }
     string VerifyMac(string Combined)
     {
-        size_t npos = Combined.find("::");
+        size_t npos = Combined.find(":");
         string Hash = Combined.substr(0, npos);
-        Combined = Combined.substr(npos + 2);
-        if(Hash != h.MINIHASHER(Combined, 9))
+        Combined = Combined.substr(npos + 1);
+        if(Hash != h.MINIHASHER(KEY + Combined + KEY, 9))
         {
             cout << "Tampered";
             exit(0);
@@ -93,7 +94,8 @@ public:
         uniform_int_distribution<> zdist(0, 4);
         uniform_int_distribution<> fdist(0, static_cast<int>(CHARSET.length() - 1));
         uniform_int_distribution<> ndist(0, Extended.length() - 1);
-        int SaltLen = 2 + zdist(gen);
+        uniform_int_distribution<> gdist(0, 7);
+        int SaltLen = 4 + zdist(gen);
         string GenSalt, GenSalt2;
         for (int i = 0;i < SaltLen;i++)
         {
@@ -108,17 +110,11 @@ public:
         int num2 = fdist(gen);
         int num3 = fdist(gen);
         string Marker1, Marker2;
-        int len = 3 + zdist(fgen);
-        for (int i = 0;i < len;i++)
-        {
-            int pos = fdist(fgen);
-            Marker1 += CHARSET[pos];
-        }
-        for (int i = 0;i < len;i++)
-        {
-            int pos = fdist(fgen);
-            Marker2 += CHARSET[pos];
-        }
+        int pos1 = gdist(fgen);
+        int pos2 = -1;
+        while (pos2 == pos1) pos2 = gdist(fgen);
+        Marker1 = CONTROL_CHARS[pos1 % 8];
+        Marker2 = CONTROL_CHARS[pos2 % 8];
         string final = GenSalt + Marker1 + orginal + CHARSET[num2] + Marker2 + GenSalt2 + CHARSET[num3];
         USEKEY = h.MINIHASHER(USEKEY, final.length());
         string Balls = h.Bytemix(Combined);
@@ -172,11 +168,13 @@ public:
         uniform_int_distribution<> zdist(0, 4);
         uniform_int_distribution<> ndist(0, Extended.length() - 1);
         uniform_int_distribution<> fdist(0, CHARSET.length() - 1);
-        int len = 3 + zdist(fgen);
+        uniform_int_distribution<> gdist(0, 7);
         string Marker1, Marker2;
-        for (int i = 0; i < len; i++) Marker1 += CHARSET[fdist(fgen)];
-        for (int i = 0; i < len; i++) Marker2 += CHARSET[fdist(fgen)];
-
+        int pos1 = gdist(fgen);
+        int pos2 = -1;
+        while (pos2 == pos1) pos2 = gdist(fgen);
+        Marker1 = CONTROL_CHARS[pos1 % 8];
+        Marker2 = CONTROL_CHARS[pos2 % 8];
         size_t pos = decrypted.find(Marker1);  // Search in decrypted, not Salted
         if (pos == string::npos) return "";
         string afterMarker = decrypted.substr(pos + Marker1.length());  // Use decrypted
@@ -248,7 +246,7 @@ public:
             password[i] ^= (Opkey[i] << 2);
         }
 
-        KEY = password;
+        KEY = h.HASHER(password, 256);
     }
     
     void ExtendKey(size_t targetLength) {
@@ -277,8 +275,8 @@ public:
         GenerateKey(password);
         string decodedCipher = VerifyMac(ciphertext);
         decodedCipher = h.Base64Decode(decodedCipher);
+        ExtendKey(decodedCipher.length());
         string afterStreamer = h.REVERSIBLEKDFRSARIPOFF(decodedCipher, KEY);
-        ExtendKey(afterStreamer.length());
         string decrypted = afterStreamer;
         decrypted = h.ReverseByteMix(decrypted);
         decrypted = h.RDimensionalMix(decrypted, KEY);
