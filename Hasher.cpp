@@ -19,6 +19,7 @@ int SBox[256] = { 1,133,84,252,17,126,159,177,34,59,138,108,24,185,131,174,249,2
 146,214,235,14,60,73,209,31,255,18,117,12,227,210,194,4,164,42,192,225,71,69,118,212,135,88,30,
 115,53,91,161,207,199,36,254,48,65,68,102,86,111,216,136,120,58,15,189,251,246,173};
 int InvSbox[256];
+uint64_t GRC = 0x9E3779B97F4A7C15ULL;
 
 bool Hasher::IsPrime(int num) {
     if (num < 2) return false;
@@ -30,7 +31,7 @@ bool Hasher::IsPrime(int num) {
     return true;
 }
 
-string Hasher::Bytemix(string Data)
+string Hasher::BytemixCorrupt(string Data)
 {
     string ByteBlob;
 
@@ -318,10 +319,9 @@ string Hasher::HASHER(string key, int lenny) {
                 c = (char)((uc >> 1) | (uc << 7));
             }
         }
-        if (round % 16 == 0) post = Bytemix(post);
+        if (round % 16 == 0) post = BytemixCorrupt(post);
     }
 
-    // --- Final expansion to exact length ---
     size_t targetLength = static_cast<size_t>(lenny);
     size_t iteration = 0;
     const size_t maxIterations = 4;
@@ -421,18 +421,19 @@ string Hasher::REVERSIBLEKDFRSARIPOFF(string Orginal, string KEY)
     mt19937 fgen(r);
     string stream = to_string(use);
     stream += HASHER(stream, KEY.length() - stream.length());
-
+    stream = stream.substr(0, KEY.length());
+    string workingKey = KEY;
     int x = 0;
-    for(char &c: KEY)
+    for(char &c: workingKey)
     {
         c ^= stream[x];
         x++;
     }
-    if (KEY.length() < Orginal.length()) KEY += HASHER(KEY, Orginal.length() - KEY.length());
+    if (workingKey.length() < Orginal.length()) workingKey += HASHER(workingKey, Orginal.length() - workingKey.length());
     x = 0;
     for (char& c : Orginal)
     {
-        c ^= KEY[x];
+        c ^= workingKey[x];
         x++;
     }
 
@@ -607,7 +608,7 @@ string Hasher::MINIHASHER(string key, int lenny) {
             }
         }
 
-        if (i % 16 == 0) post = Bytemix(post);
+        if (i % 16 == 0) post = BytemixCorrupt(post);
     }
     while (post.length() < lenny) {
         post += RSProducer(post + post[40 % (post.length() / 2)]);
@@ -630,6 +631,7 @@ string Hasher::DimensionalMix(string Original, string KEY)
     {
         Matrixproduct += (SBox[dist(gen)]);
     }
+    Matrixproduct = HASHER(Matrixproduct, Matrixproduct.length());
 
     for (int block = 0; block < NoBlocks; block++)
     {
@@ -661,7 +663,11 @@ string Hasher::DimensionalMix(string Original, string KEY)
                 for (int k = 0;k + 1 < Sze;k++)
                     for (int i = 0;i < Sze;i++)
                         for (int j = 0;j < Sze;j++)
-                            MBlock[i][j] *= (Matrixproduct[k] + Matrixproduct[k + 1]) % 255;
+                        {
+                            int Offset = (i * Sze + j + k + round) % 127;
+                            int multiplier = ((Matrixproduct[k] + Matrixproduct[k + 1]) + Offset) % 255;
+                            MBlock[i][j] *= (multiplier | 1);
+                        }
             }
             for (int i = 0; i < Sze; i++)
                 for (int j = 0; j < Sze; j++)
@@ -712,6 +718,7 @@ string Hasher::RDimensionalMix(string Mixed, string KEY) {
     for (int i = 0; i < KEY.length(); i++) {
         Matrixproduct += (SBox[dist(gen)]);
     }
+    Matrixproduct = HASHER(Matrixproduct, Matrixproduct.length());
 
     int blockDataSize = BlockSize * BlockSize;
     int NoBlocks = Mixed.length() / blockDataSize;
@@ -760,15 +767,15 @@ string Hasher::RDimensionalMix(string Mixed, string KEY) {
                     MBlock[i][j] = InvSbox[(unsigned char)MBlock[i][j]];
 
             if (round % 2 == 0) {
-                for (int k = Sze - 2; k >= 0; k--) { 
-                    for (int i = Sze - 1; i >= 0; i--) { 
-                        for (int j = Sze - 1; j >= 0; j--) {  
-                            int multiplier = (Matrixproduct[k] + Matrixproduct[k + 1]) % 255;
-                            if (multiplier != 0) {
-                                int inverse = modInverse(multiplier, 256);
-                                if (inverse != -1) {
-                                    MBlock[i][j] = (MBlock[i][j] * inverse) & 0xFF;
-                                }
+                for (int k = Sze - 2; k >= 0; k--) {
+                    for (int i = Sze - 1; i >= 0; i--) {
+                        for (int j = Sze - 1; j >= 0; j--) {
+                            int Offset = (i * Sze + j + k + round) % 127;
+                            int multiplier = ((Matrixproduct[k] + Matrixproduct[k + 1]) + Offset) % 255;
+                            int actualMultiplier = multiplier | 1; 
+                            int inverse = modInverse(actualMultiplier, 256);
+                            if (inverse != -1) {
+                                MBlock[i][j] = (MBlock[i][j] * inverse) & 0xFF;
                             }
                         }
                     }
@@ -799,4 +806,123 @@ void Hasher::GenerateInvSBox() {
     for (int i = 0; i < 256; i++) {
         InvSbox[(unsigned char)SBox[i]] = i;
     }
+}
+
+string Hasher::Bytemix(string Data)
+{
+    vector<char> bits(Data.size() * 8);
+
+    for (size_t i = 0; i < Data.size(); ++i)
+    {
+        for (int b = 0; b < 8; ++b)
+            bits[i * 8 + b] = ((Data[i] >> (7 - b)) & 1) ? 1 : 0;
+    }
+
+    for (size_t i = 0; i + 3 < bits.size(); i += 4)
+    {
+        swap(bits[i], bits[i + 3]);
+        swap(bits[i + 1], bits[i + 2]);
+    }
+
+    size_t n = bits.size();
+    for (size_t i = 0; i < n / 2; ++i)
+        swap(bits[i], bits[n - 1 - i]);
+    for (size_t i = 0; i < n; ++i)
+        bits[i] ^= 1;
+
+    for (size_t i = 0; i < Data.size(); ++i)
+    {
+        char val = 0;
+        for (int b = 0; b < 8; ++b)
+            val |= bits[i * 8 + b] << (7 - b);
+        Data[i] = val;
+    }
+
+    return Data; 
+}
+
+string Hasher::ReverseByteMix(string Data)
+{
+    vector<char> bits(Data.size() * 8);
+
+    for (size_t i = 0; i < Data.size(); ++i)
+        for (int b = 0; b < 8; ++b)
+            bits[i * 8 + b] = ((Data[i] >> (7 - b)) & 1) ? 1 : 0;
+
+    // Flip bits and reverse
+    for (size_t i = 0; i < bits.size(); ++i)
+        bits[i] ^= 1;
+    size_t n = bits.size();
+    for (size_t i = 0; i < n / 2; ++i)
+        swap(bits[i], bits[n - 1 - i]);
+    for (size_t i = 0; i + 3 < bits.size(); i += 4)
+    {
+        swap(bits[i], bits[i + 3]);
+        swap(bits[i + 1], bits[i + 2]);
+    }
+
+    for (size_t i = 0; i < Data.size(); ++i)
+    {
+        char val = 0;
+        for (int b = 0; b < 8; ++b)
+            val |= bits[i * 8 + b] << (7 - b);
+        Data[i] = val;
+    }
+    return Data;
+}
+
+string Hasher::DataShuffle(string Original)
+{
+    for (int k = 0;k < 10;k++)
+    {
+        for (int i = 0; i + 1 < (int)Original.length(); ++i) {
+            uint8_t xi = (uint8_t)Original[i];
+            uint8_t xk = (uint8_t)(xi + (uint8_t)k);
+
+            uint8_t rot = (uint8_t)(((xk >> 3) | (xk << 5)) & 0xFF);
+
+            uint8_t mask = (uint8_t)(((((uint64_t)(uint8_t)Original[i + 1]) + (uint64_t)k * (uint64_t)GRC) >> 4) & 0xFF);
+            mask |= 1;
+
+            Original[i] = (char)(rot ^ mask);
+        }
+
+        Original = Bytemix(Original);
+
+        for (int i = (int)Original.length() - 1; i >= 1; --i) {
+            uint8_t left = (uint8_t)Original[i - 1];
+            uint8_t mask2 = (uint8_t)((((uint64_t)left * (((uint64_t)GRC / 2) >> 2)) & 0xFF) | 1);
+            Original[i] = (char)(((uint8_t)Original[i]) ^ mask2);
+        }
+    }
+    return Original;
+}
+
+string Hasher::RDataShuffle(string final)
+{
+    for (int k = 9; k >= 0; --k) {
+        for (int i = 1; i < (int)final.length(); ++i) {
+            uint8_t left = (uint8_t)final[i - 1];
+            uint8_t mask2 = (uint8_t)((((uint64_t)left * (((uint64_t)GRC / 2) >> 2)) & 0xFF) | 1);
+            final[i] = (char)(((uint8_t)final[i]) ^ mask2);
+        }
+
+        final = ReverseByteMix(final);
+
+        for (int i = (int)final.length() - 2; i >= 0; --i) {
+            uint8_t c = (uint8_t)final[i];
+
+            uint8_t mask = (uint8_t)(((((uint64_t)(uint8_t)final[i + 1]) + (uint64_t)k * (uint64_t)GRC) >> 4) & 0xFF);
+            mask |= 1;
+
+            c ^= mask;
+
+            c = (uint8_t)(((c << 3) | (c >> 5)) & 0xFF);
+            c = (uint8_t)((c - (uint8_t)k) & 0xFF);
+
+            final[i] = (char)c;
+        }
+    }
+
+    return final;
 }
