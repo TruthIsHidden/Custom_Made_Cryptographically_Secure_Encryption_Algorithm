@@ -322,6 +322,7 @@ string Hasher::HASHER(string key, int lenny) {
         if (round % 16 == 0) post = BytemixCorrupt(post);
     }
 
+    // --- Final expansion to exact length ---
     size_t targetLength = static_cast<size_t>(lenny);
     size_t iteration = 0;
     const size_t maxIterations = 4;
@@ -812,24 +813,28 @@ string Hasher::Bytemix(string Data)
 {
     vector<char> bits(Data.size() * 8);
 
+    // Fill bit vector directly
     for (size_t i = 0; i < Data.size(); ++i)
     {
         for (int b = 0; b < 8; ++b)
             bits[i * 8 + b] = ((Data[i] >> (7 - b)) & 1) ? 1 : 0;
     }
 
+    // 4-bit swap
     for (size_t i = 0; i + 3 < bits.size(); i += 4)
     {
         swap(bits[i], bits[i + 3]);
         swap(bits[i + 1], bits[i + 2]);
     }
 
+    // Reverse and flip bits in-place
     size_t n = bits.size();
     for (size_t i = 0; i < n / 2; ++i)
         swap(bits[i], bits[n - 1 - i]);
     for (size_t i = 0; i < n; ++i)
         bits[i] ^= 1;
 
+    // Pack bits back into bytes
     for (size_t i = 0; i < Data.size(); ++i)
     {
         char val = 0;
@@ -838,13 +843,14 @@ string Hasher::Bytemix(string Data)
         Data[i] = val;
     }
 
-    return Data; 
+    return Data; // no extra copies created
 }
 
 string Hasher::ReverseByteMix(string Data)
 {
     vector<char> bits(Data.size() * 8);
 
+    // Expand bytes into bits
     for (size_t i = 0; i < Data.size(); ++i)
         for (int b = 0; b < 8; ++b)
             bits[i * 8 + b] = ((Data[i] >> (7 - b)) & 1) ? 1 : 0;
@@ -855,12 +861,15 @@ string Hasher::ReverseByteMix(string Data)
     size_t n = bits.size();
     for (size_t i = 0; i < n / 2; ++i)
         swap(bits[i], bits[n - 1 - i]);
+
+    // Reverse 4-bit swaps
     for (size_t i = 0; i + 3 < bits.size(); i += 4)
     {
         swap(bits[i], bits[i + 3]);
         swap(bits[i + 1], bits[i + 2]);
     }
 
+    // Pack bits back into bytes
     for (size_t i = 0; i < Data.size(); ++i)
     {
         char val = 0;
@@ -879,8 +888,10 @@ string Hasher::DataShuffle(string Original)
             uint8_t xi = (uint8_t)Original[i];
             uint8_t xk = (uint8_t)(xi + (uint8_t)k);
 
+            // proper ROTR3 of (xi + k)
             uint8_t rot = (uint8_t)(((xk >> 3) | (xk << 5)) & 0xFF);
 
+            // neighbor-dependent mask with k included, fully parenthesized
             uint8_t mask = (uint8_t)(((((uint64_t)(uint8_t)Original[i + 1]) + (uint64_t)k * (uint64_t)GRC) >> 4) & 0xFF);
             mask |= 1;
 
@@ -901,22 +912,28 @@ string Hasher::DataShuffle(string Original)
 string Hasher::RDataShuffle(string final)
 {
     for (int k = 9; k >= 0; --k) {
+        // 1) undo the backward XOR pass (same direction as its dependency)
         for (int i = 1; i < (int)final.length(); ++i) {
             uint8_t left = (uint8_t)final[i - 1];
             uint8_t mask2 = (uint8_t)((((uint64_t)left * (((uint64_t)GRC / 2) >> 2)) & 0xFF) | 1);
             final[i] = (char)(((uint8_t)final[i]) ^ mask2);
         }
 
+        // 2) undo Bytemix
         final = ReverseByteMix(final);
 
+        // 3) undo the forward pass (right→left)
         for (int i = (int)final.length() - 2; i >= 0; --i) {
             uint8_t c = (uint8_t)final[i];
 
+            // exact same mask as encrypt (with + k*GRC)
             uint8_t mask = (uint8_t)(((((uint64_t)(uint8_t)final[i + 1]) + (uint64_t)k * (uint64_t)GRC) >> 4) & 0xFF);
             mask |= 1;
 
+            // undo XOR
             c ^= mask;
 
+            // undo rotate-right-by-3: rotate left by 3, then subtract k
             c = (uint8_t)(((c << 3) | (c >> 5)) & 0xFF);
             c = (uint8_t)((c - (uint8_t)k) & 0xFF);
 
