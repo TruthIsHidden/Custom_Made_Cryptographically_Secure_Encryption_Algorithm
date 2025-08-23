@@ -37,7 +37,7 @@ private:
 115,53,91,161,207,199,36,254,48,65,68,102,86,111,216,136,120,58,15,189,251,246,173 };
 
 public:
-
+    
     string ImplementMac(string Orginal)
     {
         return h.MINIHASHER(Orginal, 9) + "::" + Orginal;
@@ -61,23 +61,19 @@ public:
         uniform_int_distribution<> dist(0, Combined.length()-1);
 
         string Final;
-        for(int i = 0;i<6;i++)
+        for(int i = 0;i<3;i++)
         {
             Final += Combined[dist(gen)];
         }
-        Final += ":\xf:" + Orginal;
-        Final = Bytemix(Final);
+        Final += ":Zq:" + Orginal;
         return Final;
 
     }
     string RemoveIndependentSalt(string Salted)
     {
-        string Final;
-        Salted = ReverseByteMix(Salted);
-        size_t npos = Salted.find(":\xf:");
-        Final = Salted;
-        Final = Final.substr(npos + 4);        
-        return Final;
+        size_t npos = Salted.find(":Zq:");
+        if (npos == string::npos) return "MARKER_NOT_FOUND";
+        return Salted.substr(npos + 4);
     }
     string AddRandomSalt(string orginal)
     {
@@ -85,7 +81,7 @@ public:
         mt19937 gen(rd());
         int Seed = 0;
         int x = 0;
-        string PREDATA = KEY + KEY.substr(49, 54);
+        string PREDATA = KEY + KEY.substr(6, 9);
         string USEKEY = "";
         for (int i = PREDATA.length() - 1;i >= 0;i--) { USEKEY += char((PREDATA[i] + i - x - 1) * 131) % 143;x++; }
         x = 0;
@@ -97,7 +93,7 @@ public:
         uniform_int_distribution<> zdist(0, 4);
         uniform_int_distribution<> fdist(0, static_cast<int>(CHARSET.length() - 1));
         uniform_int_distribution<> ndist(0, Extended.length() - 1);
-        int SaltLen = 3 + zdist(gen);
+        int SaltLen = 2 + zdist(gen);
         string GenSalt, GenSalt2;
         for (int i = 0;i < SaltLen;i++)
         {
@@ -115,17 +111,17 @@ public:
         int len = 3 + zdist(fgen);
         for (int i = 0;i < len;i++)
         {
-            int pos = ndist(fgen);
-            Marker1 += Extended[pos];
+            int pos = fdist(fgen);
+            Marker1 += CHARSET[pos];
         }
         for (int i = 0;i < len;i++)
         {
-            int pos = ndist(fgen);
-            Marker2 += Extended[pos];
+            int pos = fdist(fgen);
+            Marker2 += CHARSET[pos];
         }
         string final = GenSalt + Marker1 + orginal + CHARSET[num2] + Marker2 + GenSalt2 + CHARSET[num3];
         USEKEY = h.MINIHASHER(USEKEY, final.length());
-        string Balls = Bytemix(Combined);
+        string Balls = h.Bytemix(Combined);
         for(int i = 0;i<Balls.length();i++)
         {
             Balls[i] <<= 2;
@@ -145,7 +141,7 @@ public:
     {
         int Seed = 0;
         int x = 0;
-        string PREDATA = KEY + KEY.substr(49, 54);
+        string PREDATA = KEY + KEY.substr(6, 9);
         string USEKEY = "";
         for (int i = PREDATA.length() - 1;i >= 0;i--) { USEKEY += char((PREDATA[i] + i - x - 1) * 131) % 143;x++; }
         x = 0;
@@ -156,7 +152,7 @@ public:
         // First decrypt the entire string
         string decrypted = Salted;
         USEKEY = h.MINIHASHER(USEKEY, decrypted.length());
-        string Balls = Bytemix(Combined);
+        string Balls = h.Bytemix(Combined);
         for (int i = 0;i < Balls.length();i++)
         {
             Balls[i] <<= 2;
@@ -175,10 +171,11 @@ public:
         mt19937 fgen(Seed);
         uniform_int_distribution<> zdist(0, 4);
         uniform_int_distribution<> ndist(0, Extended.length() - 1);
+        uniform_int_distribution<> fdist(0, CHARSET.length() - 1);
         int len = 3 + zdist(fgen);
         string Marker1, Marker2;
-        for (int i = 0; i < len; i++) Marker1 += Extended[ndist(fgen)];
-        for (int i = 0; i < len; i++) Marker2 += Extended[ndist(fgen)];
+        for (int i = 0; i < len; i++) Marker1 += CHARSET[fdist(fgen)];
+        for (int i = 0; i < len; i++) Marker2 += CHARSET[fdist(fgen)];
 
         size_t pos = decrypted.find(Marker1);  // Search in decrypted, not Salted
         if (pos == string::npos) return "";
@@ -197,13 +194,13 @@ public:
             Data += h.MINIHASHER(Data + D_Key, (2 - (Data.length() % 2)));
         }
         D_Key = h.MINIHASHER(D_Key, Data.length());
-        Data = Bytemix(h.DimensionalMix(Data, D_Key));
+        Data = h.Bytemix(h.DimensionalMix(Data, D_Key));
         return Data;
     }
 
     string ReverseStreamer(string streamerOutput) {
         string D_Key = KEY;
-        streamerOutput = ReverseByteMix(streamerOutput);
+        streamerOutput = h.ReverseByteMix(streamerOutput);
         for (int i = D_Key.length() - 1;i >= 0;i--) D_Key[i] = ((((D_Key[i] + 43) + i) * 5) - 40) % 125;
         D_Key = h.MINIHASHER(D_Key, streamerOutput.length());
         string originalData = h.RDimensionalMix(streamerOutput, D_Key);
@@ -211,76 +208,7 @@ public:
         originalData = originalData.substr(0, npos);
         return originalData;
     }
-    string Bytemix(string Data)
-    {
-        vector<char> bits(Data.size() * 8);
-
-        // Fill bit vector directly
-        for (size_t i = 0; i < Data.size(); ++i)
-        {
-            for (int b = 0; b < 8; ++b)
-                bits[i * 8 + b] = ((Data[i] >> (7 - b)) & 1) ? 1 : 0;
-        }
-
-        // 4-bit swap
-        for (size_t i = 0; i + 3 < bits.size(); i += 4)
-        {
-            swap(bits[i], bits[i + 3]);
-            swap(bits[i + 1], bits[i + 2]);
-        }
-
-        // Reverse and flip bits in-place
-        size_t n = bits.size();
-        for (size_t i = 0; i < n / 2; ++i)
-            swap(bits[i], bits[n - 1 - i]);
-        for (size_t i = 0; i < n; ++i)
-            bits[i] ^= 1;
-
-        // Pack bits back into bytes
-        for (size_t i = 0; i < Data.size(); ++i)
-        {
-            char val = 0;
-            for (int b = 0; b < 8; ++b)
-                val |= bits[i * 8 + b] << (7 - b);
-            Data[i] = val;
-        }
-
-        return Data; // no extra copies created
-    }
-
-    string ReverseByteMix(string Data)
-    {
-        vector<char> bits(Data.size() * 8);
-
-        // Expand bytes into bits
-        for (size_t i = 0; i < Data.size(); ++i)
-            for (int b = 0; b < 8; ++b)
-                bits[i * 8 + b] = ((Data[i] >> (7 - b)) & 1) ? 1 : 0;
-
-        // Flip bits and reverse
-        for (size_t i = 0; i < bits.size(); ++i)
-            bits[i] ^= 1;
-        size_t n = bits.size();
-        for (size_t i = 0; i < n / 2; ++i)
-            swap(bits[i], bits[n - 1 - i]);
-
-        // Reverse 4-bit swaps
-        for (size_t i = 0; i + 3 < bits.size(); i += 4)
-        {
-            swap(bits[i], bits[i + 3]);
-            swap(bits[i + 1], bits[i + 2]);
-        }
-
-        // Pack bits back into bytes
-        for (size_t i = 0; i < Data.size(); ++i)
-        {
-            char val = 0;
-            for (int b = 0; b < 8; ++b)
-                val |= bits[i * 8 + b] << (7 - b);
-            Data[i] = val;
-        }
-        return Data;
-    }
+    
     void GenerateKey(string password) {
         int seed = 0;
         for(char &c: password)
@@ -331,11 +259,12 @@ public:
     }
     string Encrypt(string& plaintext, const string& password) {
         GenerateKey(password);
+        plaintext = h.DataShuffle(plaintext);
         plaintext = AddRandomSalt(plaintext);
-        plaintext = Bytemix(plaintext);
-        plaintext = IndependentSalt(plaintext);
+        // plaintext = IndependentSalt(plaintext);
+        plaintext = h.Bytemix(plaintext);
         plaintext = h.DimensionalMix(plaintext, KEY);
-        plaintext = Bytemix(plaintext);
+        plaintext = h.Bytemix(plaintext);
         ExtendKey(plaintext.length());
         string encrypted = plaintext;
         encrypted = h.REVERSIBLEKDFRSARIPOFF(encrypted, KEY);
@@ -351,11 +280,13 @@ public:
         string afterStreamer = h.REVERSIBLEKDFRSARIPOFF(decodedCipher, KEY);
         ExtendKey(afterStreamer.length());
         string decrypted = afterStreamer;
-        decrypted = ReverseByteMix(decrypted);
+        decrypted = h.ReverseByteMix(decrypted);
         decrypted = h.RDimensionalMix(decrypted, KEY);
-        decrypted = RemoveIndependentSalt(decrypted);
-        decrypted = ReverseByteMix(decrypted);
-        return RemoveRandomSalt(decrypted);
+        decrypted = h.ReverseByteMix(decrypted);
+        //decrypted = RemoveIndependentSalt(decrypted);
+        decrypted = RemoveRandomSalt(decrypted);
+        decrypted = h.RDataShuffle(decrypted);
+        return decrypted;
     }
 
    
