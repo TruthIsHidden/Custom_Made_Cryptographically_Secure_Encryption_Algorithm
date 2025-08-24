@@ -38,17 +38,118 @@ private:
 115,53,91,161,207,199,36,254,48,65,68,102,86,111,216,136,120,58,15,189,251,246,173 };
 
 public:
-    
+
+   
+    string Mix256(string orginal)
+    {
+        int len = orginal.length();
+        int bl;
+        string PerXor;
+        if (len < KEY.length())
+        {
+            if (len % 2 != 0) {
+                orginal += ":|}";
+                len = orginal.length();
+            }
+
+            bl = KEY.length() / len;
+
+            for (int i = 0; i < len; i++)
+            {
+                // Build the XOR string for this character
+                PerXor = ""; // Reset for each character
+                for (int j = 0; j < bl; j++)
+                {
+                    int keyIdx = i * bl + j; // Calculate correct key index
+                    if (keyIdx < KEY.length()) {
+                        PerXor += KEY[keyIdx];
+                    }
+                }
+
+                // XOR the original character with all bytes in PerXor
+                for (int k = 0; k < PerXor.length(); k++)
+                {
+                    orginal[i] ^= PerXor[k];
+                }
+            }
+        }
+        else
+        {
+            // Handle case where data is longer than key
+            for (int i = 0; i < len; i++)
+            {
+                orginal[i] ^= KEY[i % KEY.length()];
+            }
+        }
+
+        return orginal;
+    }
+    string ReverseMix256(string mixed)
+    {
+        int len = mixed.length();
+        int bl;
+        string PerXor;
+        if (len < KEY.length())
+        {
+            bl = KEY.length() / len;
+
+            for (int i = 0; i < len; i++)
+            {
+                PerXor = ""; 
+                for (int j = 0; j < bl; j++)
+                {
+                    int keyIdx = i * bl + j; 
+                    if (keyIdx < KEY.length()) {
+                        PerXor += KEY[keyIdx];
+                    }
+                }
+
+                for (int k = 0; k < PerXor.length(); k++)
+                {
+                    mixed[i] ^= PerXor[k];
+                }
+            }
+
+            if (mixed.length() >= 3 && mixed.substr(mixed.length() - 3) == ":|}") {
+                mixed = mixed.substr(0, mixed.length() - 3);
+            }
+        }
+        else
+        {
+            for (int i = 0; i < len; i++)
+            {
+                mixed[i] ^= KEY[i % KEY.length()];
+            }
+        }
+
+        return mixed;
+    }
+
+    string KeyForMac(string Orginal)
+    {
+        string final;
+        while (Orginal.length() < KEY.length())
+            Orginal += KEY[KEY.length() - Orginal.length()];
+
+        string usekey = KEY;
+        int len = usekey.length();
+        int x = 0;
+        for (char& c : usekey) c <<= (len * 5 - (2 * x) / 5) % 5;
+        Orginal = Orginal.substr(0, Orginal.length() / 2) + (Orginal.substr(Orginal.length()/2 + 3));
+
+        final = h.REVERSIBLEKDFRSARIPOFF(Orginal, KEY);
+        return final;
+    }
     string ImplementMac(string Orginal)
     {
-        return h.MINIHASHER(KEY + Orginal + KEY, 9) + ":" + Orginal;
+        return h.MINIHASHER(KeyForMac(Orginal), 11) + ":" + Orginal;
     }
     string VerifyMac(string Combined)
     {
         size_t npos = Combined.find(":");
         string Hash = Combined.substr(0, npos);
         Combined = Combined.substr(npos + 1);
-        if(Hash != h.MINIHASHER(KEY + Combined + KEY, 9))
+        if(Hash != h.MINIHASHER(KeyForMac(Combined), 11))
         {
             cout << "Tampered";
             exit(0);
@@ -261,6 +362,7 @@ public:
         plaintext = AddRandomSalt(plaintext);
         // plaintext = IndependentSalt(plaintext);
         plaintext = h.Bytemix(plaintext);
+        plaintext = Mix256(plaintext);
         plaintext = h.DimensionalMix(plaintext, KEY);
         plaintext = h.Bytemix(plaintext);
         ExtendKey(plaintext.length());
@@ -280,6 +382,7 @@ public:
         string decrypted = afterStreamer;
         decrypted = h.ReverseByteMix(decrypted);
         decrypted = h.RDimensionalMix(decrypted, KEY);
+        decrypted = ReverseMix256(decrypted);
         decrypted = h.ReverseByteMix(decrypted);
         //decrypted = RemoveIndependentSalt(decrypted);
         decrypted = RemoveRandomSalt(decrypted);
