@@ -882,16 +882,15 @@ string Hasher::ReverseByteMix(string Data)
 
 string Hasher::DataShuffle(string Original)
 {
+    if (Original.length() <= 6) Original += "❖⚹" + HASHER(Original, (6 - Original.length()) - 2);
     for (int k = 0;k < 10;k++)
     {
         for (int i = 0; i + 1 < (int)Original.length(); ++i) {
             uint8_t xi = (uint8_t)Original[i];
             uint8_t xk = (uint8_t)(xi + (uint8_t)k);
 
-            // proper ROTR3 of (xi + k)
             uint8_t rot = (uint8_t)(((xk >> 3) | (xk << 5)) & 0xFF);
 
-            // neighbor-dependent mask with k included, fully parenthesized
             uint8_t mask = (uint8_t)(((((uint64_t)(uint8_t)Original[i + 1]) + (uint64_t)k * (uint64_t)GRC) >> 4) & 0xFF);
             mask |= 1;
 
@@ -912,32 +911,31 @@ string Hasher::DataShuffle(string Original)
 string Hasher::RDataShuffle(string final)
 {
     for (int k = 9; k >= 0; --k) {
-        // 1) undo the backward XOR pass (same direction as its dependency)
         for (int i = 1; i < (int)final.length(); ++i) {
             uint8_t left = (uint8_t)final[i - 1];
             uint8_t mask2 = (uint8_t)((((uint64_t)left * (((uint64_t)GRC / 2) >> 2)) & 0xFF) | 1);
             final[i] = (char)(((uint8_t)final[i]) ^ mask2);
         }
 
-        // 2) undo Bytemix
         final = ReverseByteMix(final);
 
-        // 3) undo the forward pass (right→left)
+
         for (int i = (int)final.length() - 2; i >= 0; --i) {
             uint8_t c = (uint8_t)final[i];
 
-            // exact same mask as encrypt (with + k*GRC)
             uint8_t mask = (uint8_t)(((((uint64_t)(uint8_t)final[i + 1]) + (uint64_t)k * (uint64_t)GRC) >> 4) & 0xFF);
             mask |= 1;
 
-            // undo XOR
             c ^= mask;
 
-            // undo rotate-right-by-3: rotate left by 3, then subtract k
             c = (uint8_t)(((c << 3) | (c >> 5)) & 0xFF);
             c = (uint8_t)((c - (uint8_t)k) & 0xFF);
 
             final[i] = (char)c;
+        }
+        size_t npos = final.find("❖⚹");
+        if (npos != std::string::npos) {
+            final = final.substr(0, npos); 
         }
     }
 
