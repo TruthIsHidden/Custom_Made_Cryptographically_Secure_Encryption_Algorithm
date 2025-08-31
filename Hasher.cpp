@@ -419,7 +419,6 @@ string Hasher::REVERSIBLEKDFRSARIPOFF(string Orginal, string KEY)
 
     long long r = (1LL * k * k * (m - n) * (m - n) - 1LL * k * (m + n + 2)) / 2;
     long long use = r * r * r * r + (k - m);
-    mt19937 fgen(r);
     string stream = to_string(use);
     stream += HASHER(stream, KEY.length() - stream.length());
     stream = stream.substr(0, KEY.length());
@@ -882,7 +881,15 @@ string Hasher::ReverseByteMix(string Data)
 
 string Hasher::DataShuffle(string Original)
 {
-    if (Original.length() <= 6) Original += "❖⚹" + HASHER(Original, (6 - Original.length()) - 2);
+    if (Original.length() <= 6) {
+        int needed = 6 - Original.length();
+        if (needed > 2) {
+            Original += "❖⚹" + HASHER(Original, needed - 2);
+        }
+        else {
+            Original += "❖⚹";
+        }
+    }
     for (int k = 0;k < 10;k++)
     {
         for (int i = 0; i + 1 < (int)Original.length(); ++i) {
@@ -941,3 +948,13 @@ string Hasher::RDataShuffle(string final)
 
     return final;
 }
+
+string Hasher::Graph(string data, string key)
+{
+    return "";
+}
+string Hasher::DecryptGraph(string decodedCipher, string KEY)
+{
+    return "";
+}
+
