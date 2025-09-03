@@ -26,7 +26,7 @@ private:
         "ÀÁÂÃÄÅÆÇÈÉÊËÌÍÎÏÐÑÒÓÔÕÖ×ØÙÚÛÜÝÞßàáâãäåæçèéêëìíîïðñòóôõö÷øùúûüýþÿ";
     const char CONTROL_CHARS[8] = {'\x00', '\x01', '\x02', '\x03', '\x04', '\x05', '\x06', '\x07'};
     const string Combined = CHARSET + Extended;
-    int SBox[256] = { 1,133,84,252,17,126,159,177,34,59,138,108,24,185,131,174,249,243,171,112,5,
+    int MainBox[256] = { 1,133,84,252,17,126,159,177,34,59,138,108,24,185,131,174,249,243,171,112,5,
 180,241,110,43,181,183,156,132,157,160,90,158,10,217,147,190,54,238,77,152,56,232,145,105,221,
 149,37,125,109,55,226,250,220,96,204,22,165,162,196,85,28,134,124,137,142,8,229,52,11,16,114,
 170,202,57,51,3,169,224,95,178,123,176,139,188,153,197,21,151,129,70,101,98,215,72,155,66,74,
@@ -40,7 +40,6 @@ private:
  
 public:
 
-   
     string DeterministicLookUpTable(string original)
     {
         int Seed = 7;
@@ -108,7 +107,7 @@ public:
     {
         random_device r;
         uniform_int_distribution<int> Range(32,126);
-        for(int i = 0;i<8;i++)
+        for(int i = 0;i<10;i++)
         {
             int no = Range(r);
             while (no == 58) no = Range(r);
@@ -200,7 +199,7 @@ public:
 
     string KeyForMac(string Orginal)
     {
-        for (char& c : Orginal) c = SBox[int(c)];
+        for (char& c : Orginal) c = MainBox[int(c)];
         string final;
         string prekey = KEY;
         if (prekey.length() < Orginal.length()) prekey += h.HASHER(Orginal + prekey.substr(7, 11), Orginal.length() - prekey.length());
@@ -209,7 +208,7 @@ public:
         string usekey = prekey;
         for (int i = 0; i < 2; i++)
         {
-            for (char& c : usekey) c = SBox[int(c)];
+            for (char& c : usekey) c = MainBox[int(c)];
             int len = usekey.length();
             int x = 0;
             for (char& c : usekey) { c = (unsigned char)c ^ ((x * 17 + len) & 0xFF); x++; }
@@ -380,7 +379,7 @@ public:
         int seed = 0;
         for(char &c: password)
         {
-            c = SBox[(unsigned char)c];
+            c = MainBox[(unsigned char)c];
         }
         string seedSource = h.HASHER(password + Combined, password.length() / 2);
         
@@ -427,6 +426,7 @@ public:
     string Encrypt(string& plaintext, const string& password) {
         GenerateRandomFusion();
         GenerateKey(password);
+        h.GenSBox(KEY);
         plaintext = h.DataShuffle(plaintext);
         plaintext = AddRandomSalt(plaintext);
         // plaintext = IndependentSalt(plaintext);
@@ -444,12 +444,16 @@ public:
         string use = RandomSaltMerge;RandomSaltMerge = "";
         return use + ":" + encrypted;
 
+
+        
     }
 
     string Decrypt(string& ciphertext, const string& password) {
-        RandomSaltMerge = ciphertext.substr(0, 8);
-        ciphertext = ciphertext.substr(9);
-        GenerateKey(password);RandomSaltMerge = "";
+        RandomSaltMerge = ciphertext.substr(0, 10);
+        ciphertext = ciphertext.substr(11);
+        GenerateKey(password);
+        h.GenSBox(KEY);
+        RandomSaltMerge = "";
         string decodedCipher = VerifyMac(ciphertext);
         decodedCipher = h.Base64Decode(decodedCipher);
         // decodedCipher = h.DecryptGraph_BruteForce(decodedCipher, KEY);
