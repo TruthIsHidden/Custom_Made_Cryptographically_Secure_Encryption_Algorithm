@@ -22,10 +22,8 @@ private:
     string binaryToString(const string& binary);
     string RSProducer(string SEED);
     string KDFProduceEncryptStream(long long r, int len, string content);
-    string Bytemix(string Data);
     string XORPairs(const string& input);
     int modInverse(int a, int m);
-
 public:
     // Public interface - only declarations
     string HASHER(string key, int lenny);
@@ -37,6 +35,13 @@ public:
     string DimensionalMix(string Orginal, string KEY);
     string RDimensionalMix(string Mixed, string KEY);
     void GenerateInvSBox();    
-
+    string ReverseByteMix(string Data);
+    string Bytemix(string Data);
+    string DataShuffle(string Original);
+    string RDataShuffle(string final);
+    string BytemixCorrupt(string Data);
+    string Graph(string data, string KEY);
+    string DecryptGraph(string decodedCipher, string KEY);
+    void GenSBox(string prekey);
     // void RunCollisionTest(int l);  // Future implementation
 };
