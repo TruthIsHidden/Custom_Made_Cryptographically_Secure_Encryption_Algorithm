@@ -43,6 +43,15 @@ bool Hasher::IsPrime(int num) {
     return true;
 }
 
+uint8_t rotate_right(uint8_t byte, unsigned int i) {
+    i %= 8;
+    return (byte >> i) | (byte << (8 - i));
+}
+uint8_t rotate_left(uint8_t byte, unsigned int i) {
+    i %= 8; // just in case i > 8
+    return (byte << i) | (byte >> (8 - i));
+}
+
 string Hasher::BytemixCorrupt(string Data)
 {
     string ByteBlob;
@@ -240,14 +249,35 @@ string Hasher::RSProducer(string SEED) {
 }
 
 string Hasher::HASHER(string key, int lenny) {
+    string originalKey = key;
+
+    int seed = 0;
+    seed += key.length() + lenny;
+
+    for (char c : key) {
+        seed ^= (int)(unsigned char)c;
+        seed = seed * 1103515245 + GRC;
+    }
+
+    for (int i = 0; i < 8; i++) {
+        int append = Nmgen(seed) % 256;
+        key += char(append);
+        seed ^= append;
+        seed = seed * 1103515245 + 12345; 
+    }
+
     if (key.empty()) return "";
 
+    // Mix in original key during initial transformation
     for (size_t i = 0; i < key.length(); i++) {
         uint8_t ch = (uint8_t)key[i];
         ch = (uint8_t)(ch * 0x9E);
         ch ^= (uint8_t)((i + 1) * 0xA7);
         ch ^= (uint8_t)(0x5C ^ (i * 0x2B));
         ch = (uint8_t)((ch << 3) | (ch >> 5));
+
+        ch ^= (uint8_t)originalKey[i % originalKey.length()];
+
         key[i] = ch;
     }
 
@@ -255,9 +285,19 @@ string Hasher::HASHER(string key, int lenny) {
 
     string Predata = RSProducer(key);
     string SALT = Combined;
+
+    for (size_t i = 0; i < SALT.length(); i++) {
+        SALT[i] ^= originalKey[i % originalKey.length()];
+    }
+
     for (char& c : SALT) c = (unsigned char)((c << 1) | (c >> 7));
 
     string AddSalt = RSProducer(SALT) + to_string(SALT.length());
+
+    for (size_t i = 0; i < AddSalt.length(); i++) {
+        AddSalt[i] ^= originalKey[i % originalKey.length()];
+    }
+
     string PRESALT1 = RSProducer(AddSalt + key);
     string PRESALT2 = RSProducer(key + AddSalt);
     string PRESALT3 = RSProducer(key.substr(key.length() / 2) + AddSalt + key.substr(0, key.length() / 2));
@@ -274,7 +314,7 @@ string Hasher::HASHER(string key, int lenny) {
     string intermediate;
     string post;
 
-    for (int round = 1; round <= 32; round++) {
+    for (int round = 1; round <= 16; round++) {
         while (Predata.length() < key.length()) Predata += Predata;
         if (Predata.length() > key.length()) Predata.resize(key.length());
 
@@ -285,12 +325,15 @@ string Hasher::HASHER(string key, int lenny) {
         for (size_t i = 0; i < key.length(); i++) {
             intermediate[i] = (((unsigned char)key[i] ^ (unsigned char)Predata[i]) >> (round % 4))
                 ^ ((unsigned char)SALT[i] >> 1);
+
+            intermediate[i] ^= (unsigned char)originalKey[i % originalKey.length()] >> (round % 3);
         }
 
         if (!prevIntermediate.empty()) {
             for (size_t i = 0; i < intermediate.size(); i++)
                 intermediate[i] ^= prevIntermediate[i % prevIntermediate.size()];
         }
+
         prevIntermediate = intermediate;
 
         string binary = stringToBinary(intermediate);
@@ -322,8 +365,11 @@ string Hasher::HASHER(string key, int lenny) {
         for (size_t j = 0; j < AddSalt.size() && j < esLen; j++) entropySeed += AddSalt[j];
         for (size_t j = 0; j < PRESALT.size() && j < esLen; j++) entropySeed += PRESALT[j];
 
-        for (size_t i = 0; i < post.size(); i++)
+        for (size_t i = 0; i < post.size(); i++) {
             post[i] ^= intermediate[i % intermediate.size()] ^ PRESALT[i % PRESALT.size()];
+
+            post[i] ^= originalKey[(i + round) % originalKey.length()];
+        }
 
         if (round % 9 == 0) {
             for (char& c : post) {
@@ -452,8 +498,9 @@ string Hasher::REVERSIBLEKDFRSARIPOFF(string Orginal, string KEY)
     return Orginal;
 }
 
-string Hasher::MINIHASHER(string key, int lenny) {
+/*string Hasher::MINIHASHER(string key, int lenny) {
 
+    key = (to_string(GRC).substr(0, lenny)) + key;
     for (size_t i = 0; i < key.length(); i++)
     {
         uint8_t ch = (uint8_t)key[i];
@@ -463,7 +510,8 @@ string Hasher::MINIHASHER(string key, int lenny) {
         ch = (uint8_t)((ch << 3) | (ch >> 5));
         key[i] = ch;
     }
-
+    for (int i = 0;i < key.length();i++) key[i] ^= (0xAB + i * 0x17) ^ 0xAB;
+    for (int i = 0;i < key.length();i++) key[i] = SBox[((256 - i - lenny) + 3) % 256];
     if (key.empty()) return "";
 
     for (char& c : key) {
@@ -493,6 +541,7 @@ string Hasher::MINIHASHER(string key, int lenny) {
     }
 
     for (int i = 1; i <= 16; i++) {
+
         while (Predata.length() < key.length()) Predata += Predata;
         Predata = Predata.substr(0, key.length());
 
@@ -501,7 +550,7 @@ string Hasher::MINIHASHER(string key, int lenny) {
 
         string currIntermediate;
         for (size_t y = 0; y < key.length(); y++) {
-            currIntermediate.push_back((((unsigned char)key[y] ^ (unsigned char)Predata[y]) >> (i % 4)) ^ ((unsigned char)SALT[y] >> 1));
+            currIntermediate.push_back((((unsigned char)key[y] ^ rotate_left((unsigned char)Predata[y], (i + 4) % 8) ^ ((unsigned char)SALT[y] >> 1))));
         }
 
         if (!prevIntermediate.empty()) {
@@ -509,7 +558,10 @@ string Hasher::MINIHASHER(string key, int lenny) {
                 currIntermediate[j] = (unsigned char)currIntermediate[j] ^ (unsigned char)prevIntermediate[j];
             }
         }
-
+       for(int j = 0;j<prevIntermediate.length();j++)
+       {
+           prevIntermediate[j] ^= key[(i + j) % key.length()];
+       }
         prevIntermediate = currIntermediate;
         intermediate = currIntermediate;
         binary = stringToBinary(intermediate);
@@ -543,6 +595,14 @@ string Hasher::MINIHASHER(string key, int lenny) {
         entropySeed.push_back(static_cast<uint32_t>(AddSalt.length()));
         entropySeed.push_back(static_cast<uint32_t>(PRESALT.length()));
 
+        // Add round number for uniqueness
+        entropySeed.push_back(static_cast<uint32_t>(i));
+
+        // Add original key bytes to entropy
+        entropySeed.push_back(static_cast<uint32_t>(key.length()));
+        for (int idx = 0; idx < min(8, (int)key.length()); ++idx)
+            entropySeed.push_back(static_cast<uint32_t>((unsigned char)key[idx]));
+
         for (int idx = 0; idx < 10 && idx < (int)post.length(); ++idx)
             entropySeed.push_back(static_cast<uint32_t>((unsigned char)post[idx]));
         for (int idx = 0; idx < 10 && idx < (int)AddSalt.length(); ++idx)
@@ -574,12 +634,17 @@ string Hasher::MINIHASHER(string key, int lenny) {
 
         PRESALT = RSProducer(AddSalt);
         for (char& c : PRESALT) {
-            c = (unsigned char)c >> 1;
+            c = (unsigned char)c >> 1; 
         }
 
         int saltLen = dist(s);
         AddSalt = AddSalt.substr(0, min(saltLen, (int)AddSalt.length()));
+        for (int i = 0;i < AddSalt.length();i++) AddSalt[i] = SBox[(((i + 13) - 2 * lenny) + 200) % 256];
         PRESALT = PRESALT.substr(0, min(saltLen, (int)PRESALT.length()));
+        for (int j = 0;j < AddSalt.length();j++)
+        {
+            AddSalt[j] ^= key[(i + j) % key.length()];
+        }
 
         for (size_t m = 0; m < PRESALT.length(); m++) {
             PRESALT[m] = ((((((((unsigned char)PRESALT[m] << 1) * i % 251) >> (m % 8)) + (i - (int)m) * 2 % max(1, (int)PRESALT.length())) >> (i % 2)) + 13) >> 1) % 256;
@@ -619,15 +684,20 @@ string Hasher::MINIHASHER(string key, int lenny) {
                 c = (char)uc;
             }
         }
-
+        for (int j = 0;j < post.length();j++)
+        {
+            post[j] ^= key[(i + j) % key.length()];
+        }
+        
         if (i % 16 == 0) post = BytemixCorrupt(post);
+        for (int i = 0;i < post.length();i++) post[i] = SBox[(((i + 11) - 2 * lenny) + 201) % 256];
     }
     while (post.length() < lenny) {
         post += RSProducer(post + post[40 % (post.length() / 2)]);
     }
 
     return Base64Encode(post.substr(0, lenny));
-}
+}*/
 string Hasher::DimensionalMix(string Original, string KEY)
 {
     int dataPerBlock = (BlockSize * BlockSize) / 2;
@@ -1067,15 +1137,6 @@ string Hasher::DecryptGraph(string decodedCipher, string KEY)
     }
 
     return result;
-}
-
-uint8_t rotate_right(uint8_t byte, unsigned int i) {
-    i %= 8;
-    return (byte >> i) | (byte << (8 - i));
-}
-uint8_t rotate_left(uint8_t byte, unsigned int i) {
-    i %= 8; // just in case i > 8
-    return (byte << i) | (byte >> (8 - i));
 }
 
 void Hasher::GenSBox(string prekey) 
