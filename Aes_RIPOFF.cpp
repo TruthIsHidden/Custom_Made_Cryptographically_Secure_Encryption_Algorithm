@@ -381,7 +381,7 @@ public:
     }
     
     void GenerateKey(string password) {
-        int seed = 0;
+        uint64_t seed = 0;
         for(char &c: password)
         {
             c = MainBox[(unsigned char)c];
@@ -399,7 +399,9 @@ public:
         mt19937 gen(seed);
         uniform_int_distribution<> dist(0, Combined.length() - 1);
         while (password.length() <= 128) {
-            password += Combined[dist(gen)];
+            char cha = h.Nmgen(seed);
+            password += cha;
+            seed ^= cha;
         }
 
         string hashedKey = h.HASHER(password, password.length());
