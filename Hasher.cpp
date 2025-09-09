@@ -249,35 +249,31 @@ string Hasher::RSProducer(string SEED) {
 }
 
 string Hasher::HASHER(string key, int lenny) {
-    string originalKey = key;
 
-    int seed = 0;
-    seed += key.length() + lenny;
+    int tempSBox[256];
+    for (int i = 0; i < 256; i++) tempSBox[i] = i;
 
-    for (char c : key) {
-        seed ^= (int)(unsigned char)c;
-        seed = seed * 1103515245 + GRC;
+    // Use key to shuffle it deterministically
+    uint64_t seed = 0;
+    for (size_t i = 0; i < key.length(); i++) {
+        seed = ((seed << 5) + seed) + (unsigned char)key[i]; // Hash-like combination
+    }
+    mt19937 gen(seed);
+    for (int i = 255; i > 0; i--) {
+        uniform_int_distribution<int> dist(0, i);
+        int j = dist(gen);
+        swap(tempSBox[i], tempSBox[j]);
     }
 
-    for (int i = 0; i < 8; i++) {
-        int append = Nmgen(seed) % 256;
-        key += char(append);
-        seed ^= append;
-        seed = seed * 1103515245 + 12345; 
-    }
-
+    key += to_string(GRC ^ lenny + key.length());
     if (key.empty()) return "";
 
-    // Mix in original key during initial transformation
     for (size_t i = 0; i < key.length(); i++) {
         uint8_t ch = (uint8_t)key[i];
         ch = (uint8_t)(ch * 0x9E);
         ch ^= (uint8_t)((i + 1) * 0xA7);
         ch ^= (uint8_t)(0x5C ^ (i * 0x2B));
         ch = (uint8_t)((ch << 3) | (ch >> 5));
-
-        ch ^= (uint8_t)originalKey[i % originalKey.length()];
-
         key[i] = ch;
     }
 
@@ -285,19 +281,10 @@ string Hasher::HASHER(string key, int lenny) {
 
     string Predata = RSProducer(key);
     string SALT = Combined;
-
-    for (size_t i = 0; i < SALT.length(); i++) {
-        SALT[i] ^= originalKey[i % originalKey.length()];
-    }
-
+    for (int i = 0;i < SALT.length();i++) SALT[i] = tempSBox[(i + SALT[i]) % 256];
     for (char& c : SALT) c = (unsigned char)((c << 1) | (c >> 7));
 
     string AddSalt = RSProducer(SALT) + to_string(SALT.length());
-
-    for (size_t i = 0; i < AddSalt.length(); i++) {
-        AddSalt[i] ^= originalKey[i % originalKey.length()];
-    }
-
     string PRESALT1 = RSProducer(AddSalt + key);
     string PRESALT2 = RSProducer(key + AddSalt);
     string PRESALT3 = RSProducer(key.substr(key.length() / 2) + AddSalt + key.substr(0, key.length() / 2));
@@ -325,17 +312,14 @@ string Hasher::HASHER(string key, int lenny) {
         for (size_t i = 0; i < key.length(); i++) {
             intermediate[i] = (((unsigned char)key[i] ^ (unsigned char)Predata[i]) >> (round % 4))
                 ^ ((unsigned char)SALT[i] >> 1);
-
-            intermediate[i] ^= (unsigned char)originalKey[i % originalKey.length()] >> (round % 3);
         }
 
         if (!prevIntermediate.empty()) {
             for (size_t i = 0; i < intermediate.size(); i++)
                 intermediate[i] ^= prevIntermediate[i % prevIntermediate.size()];
         }
-
+        for (int i = 0;i < intermediate.length();i++) intermediate[i] = tempSBox[255 - intermediate[i]];
         prevIntermediate = intermediate;
-
         string binary = stringToBinary(intermediate);
         string currBits;
         currBits.reserve(binary.length());
@@ -358,18 +342,15 @@ string Hasher::HASHER(string key, int lenny) {
             }
             post = std::move(newPost);
         }
-
+        post = Bytemix(post);
         string entropySeed;
         size_t esLen = 10;
         for (size_t j = 0; j < post.size() && j < esLen; j++) entropySeed += post[j];
         for (size_t j = 0; j < AddSalt.size() && j < esLen; j++) entropySeed += AddSalt[j];
         for (size_t j = 0; j < PRESALT.size() && j < esLen; j++) entropySeed += PRESALT[j];
 
-        for (size_t i = 0; i < post.size(); i++) {
+        for (size_t i = 0; i < post.size(); i++)
             post[i] ^= intermediate[i % intermediate.size()] ^ PRESALT[i % PRESALT.size()];
-
-            post[i] ^= originalKey[(i + round) % originalKey.length()];
-        }
 
         if (round % 9 == 0) {
             for (char& c : post) {
