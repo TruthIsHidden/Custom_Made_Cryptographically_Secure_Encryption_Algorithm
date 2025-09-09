@@ -30,6 +30,8 @@ private:
                          "€‚ƒ„…†‡ˆ‰Š‹ŒŽ''""•–—˜™š›œžŸ ¡¢£¤¥¦§¨©ª«¬­®¯°±²³´µ¶·¸¹º»¼½¾¿"
         "ÀÁÂÃÄÅÆÇÈÉÊËÌÍÎÏÐÑÒÓÔÕÖ×ØÙÚÛÜÝÞßàáâãäåæçèéêëìíîïðñòóôõö÷øùúûüýþÿ";
     const char CONTROL_CHARS[8] = {'\x00', '\x01', '\x02', '\x03', '\x04', '\x05', '\x06', '\x07'};
+
+    const string encoder = "234567890~!@#$%^&*()_+qwertyuiop[]asdfghjkl;'zxcvbnmn<>?|";
     const string Combined = CHARSET + Extended;
     int MainBox[256] = { 1,133,84,252,17,126,159,177,34,59,138,108,24,185,131,174,249,243,171,112,5,
 180,241,110,43,181,183,156,132,157,160,90,158,10,217,147,190,54,238,77,152,56,232,145,105,221,
@@ -232,7 +234,7 @@ public:
     }
     string ImplementMac(string Orginal)
     {
-        return h.MINIHASHER(KeyForMac(Orginal), 12) + ":" + Orginal;
+        return h.HASHER(KeyForMac(Orginal), 12) + ":" + Orginal;
     }
     string VerifyMac(string Combined)
     {
@@ -241,7 +243,7 @@ public:
         Combined = Combined.substr(npos + 1);
 
         string keyForMacResult = KeyForMac(Combined);
-        string computedMAC = h.MINIHASHER(keyForMacResult, 12);
+        string computedMAC = h.HASHER(keyForMacResult, 12);
 
         if (Hash != computedMAC)
         {
@@ -290,7 +292,7 @@ public:
         Marker1 = CONTROL_CHARS[pos1 % 8];
         Marker2 = CONTROL_CHARS[pos2 % 8];
         string final = GenSalt + Marker1 + orginal + CHARSET[num2] + Marker2 + GenSalt2 + CHARSET[num3];
-        USEKEY = h.MINIHASHER(USEKEY, final.length());
+        USEKEY = h.HASHER(USEKEY, final.length());
         string Balls = h.Bytemix(Combined);
         for(int i = 0;i<Balls.length();i++)
         {
@@ -321,7 +323,7 @@ public:
 
         // First decrypt the entire string
         string decrypted = Salted;
-        USEKEY = h.MINIHASHER(USEKEY, decrypted.length());
+        USEKEY = h.HASHER(USEKEY, decrypted.length());
         string Balls = h.Bytemix(Combined);
         for (int i = 0;i < Balls.length();i++)
         {
@@ -362,9 +364,9 @@ public:
         Data += "\x1F\x0B\x0E";
         if(Data.length() % 2 != 0)
         {
-            Data += h.MINIHASHER(Data + D_Key, (2 - (Data.length() % 2)));
+            Data += h.HASHER(Data + D_Key, (2 - (Data.length() % 2)));
         }
-        D_Key = h.MINIHASHER(D_Key, Data.length());
+        D_Key = h.HASHER(D_Key, Data.length());
         Data = h.Bytemix(h.DimensionalMix(Data, D_Key));
         return Data;
     }
@@ -373,7 +375,7 @@ public:
         string D_Key = KEY;
         streamerOutput = h.ReverseByteMix(streamerOutput);
         for (int i = D_Key.length() - 1;i >= 0;i--) D_Key[i] = ((((D_Key[i] + 43) + i) * 5) - 40) % 125;
-        D_Key = h.MINIHASHER(D_Key, streamerOutput.length());
+        D_Key = h.HASHER(D_Key, streamerOutput.length());
         string originalData = h.RDimensionalMix(streamerOutput, D_Key);
         size_t npos = originalData.find("\x1F\x0B\x0E");
         originalData = originalData.substr(0, npos);
@@ -411,7 +413,7 @@ public:
         }
         string baseKey = password; 
         string Opkey(baseKey.length(), 0);
-        string Touse = h.MINIHASHER(RandomSaltMerge, password.length());
+        string Touse = h.HASHER(RandomSaltMerge, password.length());
         for (int i = 0; i < baseKey.length(); i++) {
             Opkey[i] = baseKey[i] ^ Combined[i % Combined.length()];
             Opkey[i] = (Opkey[i] << (1 + (i % 3))) | (Opkey[i] >> (8 - (1 + (i % 3))) >> 1);
@@ -421,7 +423,7 @@ public:
             password[i] ^= (Opkey[i] << 2);
             password[i] ^= Touse[i];
         }
-        KEY = h.HASHER(password, 256);
+        KEY = h.HASHER(password, 300);
     }
     
     void ExtendKey(size_t targetLength) {
@@ -436,20 +438,32 @@ public:
         h.GenSBox(KEY);
         
         plaintext = h.DataShuffle(plaintext);
+        // cout << "post datashuffle(1): " << plaintext << endl;
         plaintext = AddRandomSalt(plaintext);
+        // cout << "post RandomSalt(1): " << plaintext << endl;
         plaintext = h.Bytemix(plaintext);
+        // cout << "post Bytemix(1): " << plaintext << endl;
         plaintext = Mix256(plaintext);
+        // cout << "post Mix(1): " << plaintext << endl;
         plaintext = DeterministicLookUpTable(plaintext);
+        // cout << "post DLookUpTable(1): " << plaintext;
         plaintext = h.DimensionalMix(plaintext, KEY);
+        // cout << "post DMix(1): " << plaintext;
         plaintext = h.Bytemix(plaintext);
+        // cout << "post Bytemix(2): " << plaintext;
         ExtendKey(plaintext.length());
         string encrypted = plaintext;
         encrypted = h.Graph(encrypted, KEY);
+        // cout << "post GraphMix(1): " << encrypted << endl;
         encrypted = h.REVERSIBLEKDFRSARIPOFF(encrypted, KEY);
+        // cout << "post REVERSIBLERSARIPOFF(1): " << plaintext << endl;
         // encrypted = h.Graph(encrypted, KEY);
         encrypted = h.Base64Encode(encrypted);
         encrypted = ImplementMac(encrypted);
         string use = RandomSaltMerge;RandomSaltMerge = "";
+
+        cout << "1: " << h.HASHER("1", 5) << endl;
+        cout << "9: " << h.HASHER("9", 5) << endl;
         return use + ":" + encrypted;
 
 
