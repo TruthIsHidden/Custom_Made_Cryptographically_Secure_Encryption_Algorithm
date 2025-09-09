@@ -667,7 +667,7 @@ string Hasher::DimensionalMix(string Original, string KEY)
 
         int Sze = MBlock.size();
 
-        for (int round = 0; round < 10; round++)
+        for (int round = 0; round < 9; round++)
         {
             if (round % 2 == 0)
             {
@@ -720,8 +720,6 @@ string Hasher::DimensionalMix(string Original, string KEY)
 }
 
 string Hasher::RDimensionalMix(string Mixed, string KEY) {
-    GenerateInvSBox();
-
     int Seed = 0;
     for (char& c : KEY) Seed += ((c << 1) * 134) % 124 + 124;
     mt19937 gen(Seed);
@@ -748,7 +746,7 @@ string Hasher::RDimensionalMix(string Mixed, string KEY) {
 
         int Sze = MBlock.size();
 
-        for (int round = 9; round >= 0; round--) {
+        for (int round = 8; round >= 0; round--) {
             MBlock[0][1] ^= MBlock[1][1];
             MBlock[0][0] ^= MBlock[1][0];
             MBlock[0][0] -= round * 7 + BlockSize / 3 + block + MBlock[1][1] - MBlock[1][0];
@@ -963,12 +961,114 @@ string Hasher::RDataShuffle(string final)
 
 string Hasher::Graph(string data, string key)
 {
-    return "";
+    vector<uint64_t> da;
+    vector<uint64_t> ky;
+
+    // Simple padding for data if needed
+    if (data.empty()) data = ":-|"; 
+
+    // Convert data to vector
+    for (int i = 0; i < data.length(); i++)
+    {
+        da.push_back(data[i]);
+    }
+
+    for (int i = 0; i < data.length(); i++)
+    {
+        ky.push_back(key[i % key.length()]);
+    }
+
+    uint64_t seedk = ky[0] ^ ky[ky.size() - 1];
+    for(int i = 0;i<ky.size();i++)
+    {
+        int pos = Nmgen(seedk) % ky.size();
+        swap(ky[i], ky[pos]);
+        seedk = Nmgen(seedk);
+    }
+    uint64_t seedd = ky[7] ^ ky[ky.size() - 4];
+    for (int i = 0;i < da.size();i++)
+    {
+        int pos = Nmgen(seedd) % da.size();
+        swap(da[i], da[pos]);
+        seedd = Nmgen(seedd);
+    }
+
+    for(int i = 0;i + 1<da.size();i++)
+    {
+        uint64_t seed = ky[i] ^ ky[i + 1];
+        int dx = Nmgen(seed) % 256;
+        da[i] ^= dx;
+        seed = Nmgen(seed);
+    }
+    int bpos = ky.size() - 13;
+    vector<uint64_t> final;
+    for(int i = 0;i<da.size();i++)
+    {
+        uint64_t mult = (ky[i] + ky[bpos]) | 1;
+        final.push_back((da[i] * mult) % 256);
+    }
+    string ret;
+    for (int i = 0;i < final.size();i++) ret += final[i];
+    return ret;
 }
 string Hasher::DecryptGraph(string decodedCipher, string KEY)
 {
-    return "";
+    vector<uint64_t> da;
+    vector<uint64_t> ky;
+    string key = KEY;
+
+    if (decodedCipher.empty()) return "";
+
+    for (int i = 0; i < decodedCipher.length(); i++) {
+        da.push_back(decodedCipher[i]);
+    }
+
+    for (int i = 0; i < decodedCipher.length(); i++) {
+        ky.push_back(key[i % key.length()]);
+    }
+
+    uint64_t seedk = ky[0] ^ ky[ky.size() - 1];
+    for (int i = 0; i < ky.size(); i++) {
+        int pos = Nmgen(seedk) % ky.size();
+        swap(ky[i], ky[pos]);
+        seedk = Nmgen(seedk); 
+    }
+
+    int bpos = ky.size() - 13; 
+    if (bpos < 0) bpos = 0; 
+
+    for (int i = 0; i < da.size(); i++) {
+        uint64_t mult = (ky[i] + ky[bpos]) | 1; 
+        uint64_t inv = modInverse(mult % 256, 256); 
+        da[i] = (da[i] * inv) % 256; 
+    }
+
+    for (int i = da.size() - 2; i >= 0; i--) {
+        uint64_t xor_seed = ky[i] ^ ky[i + 1];
+        int dx = Nmgen(xor_seed) % 256;
+        da[i] ^= dx;
+    }
+    vector<pair<int, int>> shuffle_sequence;
+    uint64_t seedd = ky[7] ^ ky[ky.size() - 4]; 
+    // Record all the swaps that were made during encryption
+    for (int i = 0; i < da.size(); i++) {
+        int pos = Nmgen(seedd) % da.size();
+        shuffle_sequence.push_back({ i, pos });
+        seedd = Nmgen(seedd);
+    }
+
+    for (int i = shuffle_sequence.size() - 1; i >= 0; i--) {
+        swap(da[shuffle_sequence[i].first], da[shuffle_sequence[i].second]);
+    }
+
+    string result = "";
+    for (int i = 0; i < da.size(); i++) {
+        result += (char)da[i];
+    }
+
+    return result;
 }
+
 uint8_t rotate_right(uint8_t byte, unsigned int i) {
     i %= 8;
     return (byte >> i) | (byte << (8 - i));
@@ -982,8 +1082,9 @@ void Hasher::GenSBox(string prekey)
 {
     string use = HASHER(prekey, prekey.length());
     use = use.substr(0, prekey.length());
-
-    for (int j = 0; j < 3; j++) 
+    int gbox[256];
+    for (int i = 0;i < 256;i++) gbox[i] = i;
+    for (int j = 0; j < 4; j++) 
     {
         for (int i = 0; i + 1 < use.length(); i++) 
         {
@@ -999,24 +1100,38 @@ void Hasher::GenSBox(string prekey)
             prekey[i] %= 256;
         }
     }
-    std::seed_seq seq(prekey.begin(), prekey.end());
+    seed_seq seq(prekey.begin(), prekey.end());
     mt19937 gen(seq);
     uniform_int_distribution<int> dist(0, 255);
     vector<int> fbox;
-    for (int i = 255;i >= 0;i--)
-        fbox.push_back(i);
-
-    std::shuffle(fbox.begin(), fbox.end(), gen);
-
-    for (int i = 0; i < 256; i++) {
-        if (fbox[i] == i) {
-            int j = (i + 1) % 256;
-            std::swap(fbox[i], fbox[j]);
-        }
-    }
-
+    for (int i = 255;i >= 0;i--) fbox.push_back(i);
+    shuffle(fbox.begin(), fbox.end(), gen);
     for (int i = 0;i < 256;i++) SBox[i] = fbox[i];
     GenerateInvSBox();
        
 }
 
+uint64_t Hasher:: Nmgen(uint64_t num)
+{
+    num *= 0xC6A4A7935BD1E995ULL;
+    uint64_t saltVal = 0x9E3779B97F4A7C15ULL;
+
+    for(int i = 0;i<10;i++)
+    {
+        num ^= GRC;
+        rotate_left(num, 8);
+        num ^= saltVal ^ (GRC ^ num);
+        rotate_right(num, i + 1);
+        num *= 0xDEADBEEFCAFEBABEULL;
+        rotate_left(num, i + 2);
+        num -= GRC;
+        if (i % 3 == 0) num *= (i+2);
+        else num *= (2 * i + i);
+        saltVal ^= rotate_right((((GRC * i + 3) | 1) + 13), (i + 3));
+    }
+    return num;
+}
+int Hasher::Field(int no)
+{
+    return no;
+}
