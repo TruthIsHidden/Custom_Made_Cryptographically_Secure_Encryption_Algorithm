@@ -43,5 +43,7 @@ public:
     string Graph(string data, string KEY);
     string DecryptGraph(string decodedCipher, string KEY);
     void GenSBox(string prekey);
+    int Field(int no);
+    uint64_t Nmgen(uint64_t num);
     // void RunCollisionTest(int l);  // Future implementation
 };
