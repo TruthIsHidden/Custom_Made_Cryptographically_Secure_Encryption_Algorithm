@@ -1,3 +1,8 @@
+// ALL PRNG USE IS INTERNAL, THE SEED USED IS ALSO HAS EXCELLENT ENTROPY, NONE OF THE PRNG OUTPUTS ARE EXPOSED, A.K.A IT IS ONLY A THEORETICAL WEAKNESS
+//SALTS ARE RANDOM, MARKERS ARE DETERMINISTIC
+//SALT IS ADDED TOO KDF TO FOR MAXIMUM ENTROPY
+
+
 #include "Hasher.h"
 #include <iostream>
 #include <string>
@@ -107,10 +112,10 @@ public:
     {
         random_device r;
         uniform_int_distribution<int> Range(32,126);
-        for(int i = 0;i<10;i++)
+        for(int i = 0;i<12;i++)
         {
             int no = Range(r);
-            while (no == 58) no = Range(r);
+            while (no == 58 || no == 32) no = Range(r);
             RandomSaltMerge += char(no);
         }
     }
@@ -427,9 +432,9 @@ public:
         GenerateRandomFusion();
         GenerateKey(password);
         h.GenSBox(KEY);
+        
         plaintext = h.DataShuffle(plaintext);
         plaintext = AddRandomSalt(plaintext);
-        // plaintext = IndependentSalt(plaintext);
         plaintext = h.Bytemix(plaintext);
         plaintext = Mix256(plaintext);
         plaintext = DeterministicLookUpTable(plaintext);
@@ -437,6 +442,7 @@ public:
         plaintext = h.Bytemix(plaintext);
         ExtendKey(plaintext.length());
         string encrypted = plaintext;
+        encrypted = h.Graph(encrypted, KEY);
         encrypted = h.REVERSIBLEKDFRSARIPOFF(encrypted, KEY);
         // encrypted = h.Graph(encrypted, KEY);
         encrypted = h.Base64Encode(encrypted);
@@ -445,12 +451,13 @@ public:
         return use + ":" + encrypted;
 
 
+
         
     }
 
     string Decrypt(string& ciphertext, const string& password) {
-        RandomSaltMerge = ciphertext.substr(0, 10);
-        ciphertext = ciphertext.substr(11);
+        RandomSaltMerge = ciphertext.substr(0, 12);
+        ciphertext = ciphertext.substr(13);
         GenerateKey(password);
         h.GenSBox(KEY);
         RandomSaltMerge = "";
@@ -459,11 +466,13 @@ public:
         // decodedCipher = h.DecryptGraph_BruteForce(decodedCipher, KEY);
         ExtendKey(decodedCipher.length());
         string afterStreamer = h.REVERSIBLEKDFRSARIPOFF(decodedCipher, KEY);
+        afterStreamer = h.DecryptGraph(afterStreamer, KEY);
         string decrypted = afterStreamer;
         decrypted = h.ReverseByteMix(decrypted);
         decrypted = h.RDimensionalMix(decrypted, KEY);
         decrypted = ReverseDeterministicLookUpTable(decrypted);
         decrypted = ReverseMix256(decrypted);
+  
         decrypted = h.ReverseByteMix(decrypted);
         //decrypted = RemoveIndependentSalt(decrypted);
         decrypted = RemoveRandomSalt(decrypted);
