@@ -250,85 +250,98 @@ string Hasher::RSProducer(string SEED) {
 
 string Hasher::HASHER(string key, int lenny) {
     string okey = key;
-    uint64_t seed = 0;
-    for (size_t i = 0; i < key.length(); i++) {
-        seed = ((seed << 5) + seed) + (unsigned char)key[i];
-    }
-    /*
-    int tempSBox[256];
-    for (int i = 0; i < 256; i++) tempSBox[i] = i;
-    mt19937 gen(seed);
-    for (int i = 255; i > 0; i--) {
-        uniform_int_distribution<int> dist(0, i);
-        int j = dist(gen);
-        swap(tempSBox[i], tempSBox[j]);
-    } Only needed when run independently */
+
+    // Keep your original key preprocessing
     key += to_string(GRC ^ lenny + key.length());
     if (key.empty()) return "";
+
     for (size_t i = 0; i < key.length(); i++) {
         uint8_t ch = (uint8_t)key[i];
-        ch = (uint8_t)(ch * 0x9E);
+
+        ch ^= (uint8_t)(i * 0x67 + 0x43);         
+        ch = (uint8_t)(ch * (0x9E + (i % 16)));     
         ch ^= (uint8_t)((i + 1) * 0xA7);
         ch ^= (uint8_t)(0x5C ^ (i * 0x2B));
-        ch = (uint8_t)((ch << 3) | (ch >> 5));
+        ch = (uint8_t)((ch << ((i % 7) + 1)) | (ch >> (7 - (i % 7)))); 
+
+        if (i > 0) ch ^= key[i - 1];
+        if (i < key.length() - 1) ch ^= key[(i + 1) % key.length()];
+
         key[i] = ch;
     }
-    seed = (key[key.length() - 1] ^ key[0] - key[key.length() / 2]) * 0xC2B2AE3D27D4EB4F;
-    for (int i = 0;i < key.length();i++)
-    {
-        uint64_t charpos = Nmgen(seed);
-        key[i] ^= rotate_right(SBox[(charpos + i) % 256], (key.length() - i) % 8);
+
+    for (int i = 0; i < key.length(); i++) {
+        uint8_t sbox_idx = (key[i] + i + key.length()) % 256;
+        key[i] ^= rotate_right(SBox[sbox_idx], (key.length() - i) % 8);
     }
+
     if (key.length() % 8 != 0) key += okey.substr(0, 8 - key.length() % 8);
     int blocks = key.length() / 8;
+
     string state;
     for (int i = 0; i < 64; i++) {
-        state += char((i * 17 + 42) % 256);  // Some non-zero pattern
+        char proc = char(key[i % key.length()] ^ ((i * 17 + 42) % 256));
+        state += proc;
+        if (i < key.length()) {
+            state[i] ^= rotate_left(key[i], i % 8);
+        }
     }
-    for (int i = 0;i < 16;i++)
-    {
+
+    for (int round = 0; round < 16; round++) {
         std::vector<std::vector<int>> vec;
-        for (int b = 0; b < blocks; b++)
-        {
+        for (int b = 0; b < blocks; b++) {
             std::vector<int> inner;
-            // Fill the inner vector with values corresponding to each char in the block
             for (int c = 0; c < 8; c++) {
-                int idx = b * 8 + c;       // position in the key
-                inner.push_back((unsigned char)key[idx]);  // convert char -> int
+                int idx = b * 8 + c;
+                inner.push_back((unsigned char)key[idx]);
             }
             vec.push_back(inner);
         }
-        for (int j = 0;j < blocks;j++)
-            for (int i = 0;i < 8;i++)
-            {
+
+        for (int j = 0; j < blocks; j++) {
+            for (int i = 0; i < 8; i++) {
                 if (i < 4) std::swap(vec[j][i], vec[j][7 - i]);
                 if (i % 2 != 0) vec[j][i] ^= 0xFF;
-                vec[j][i] ^= SBox[((i + j) + vec[j][i]) % 256];
-                if (i % 2 == 0)  vec[j][i] = rotate_left(vec[j][i], (i + j) % 8);
+                vec[j][i] ^= SBox[((i + j + round) + vec[j][i]) % 256]; 
+                if (i % 2 == 0) vec[j][i] = rotate_left(vec[j][i], (i + j) % 8);
                 if (i % 2 != 0) vec[j][i] = rotate_right(vec[j][i], (i + j) % 8);
+                vec[j][i] ^= vec[(j + 1) % blocks][(i + 3) % 8];
+                vec[j][i] ^= vec[(i+1) % blocks][(j+1) % 8];
             }
-        for (int i = 0; i < blocks; i++)
+        }
+
+        for (int i = 0; i < blocks; i++) {
             for (int j = 0; j < 8; j++) {
-                int idx = (i * 8 + j) % 64;  // wrap into full 64-byte state
+                int idx = (i * 8 + j) % 64;
                 state[idx] ^= static_cast<unsigned char>(vec[i][j]);
             }
+        }
         state = Bytemix(state);
-
     }
+
+
     int diff = 0;
     if (state.length() < lenny) diff = lenny - state.length();
-    seed = 133;
-    for (int i = 0;i < state.length();i++) seed ^= state[i];
+
     if (diff > 0)
-        for (int i = 0;i < diff;i++)
+    {
+        if (state.length() % 2 != 0) state += state[31];
+        uint64_t seed = 0x9E3779B97F4A7C15ULL;
+        for (int i = 0; i + 1 < state.length(); i += 2) {
+            seed ^= GRC;
+            seed ^= rotate_right((uint64_t)state[i], (i * 7) % 64);
+            seed *= 0xC2B2AE3D27D4EB4F;
+            seed ^= state[i + 1] - state[i];
+        }
+
+        for(int i = 0;i<diff;i++)
         {
-            char c = char(
-                rotate_left(
-                    (Nmgen(seed) ^ (i + diff)) % 256, (i + 3) % 8));
+            char c = char(rotate_left((Nmgen(seed) ^ (i + diff)) % 256,(i + 3) % 8));
             state += c;
             seed ^= c;
-
         }
+    }
+
     state = state.substr(0, lenny);
     return state;
 }
