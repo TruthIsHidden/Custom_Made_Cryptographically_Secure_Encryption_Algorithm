@@ -1,4 +1,4 @@
-﻿#include "Hasher.h"
+#include "Hasher.h"
 #include <algorithm>
 #include <unordered_set>
 
@@ -249,25 +249,22 @@ string Hasher::RSProducer(string SEED) {
 }
 
 string Hasher::HASHER(string key, int lenny) {
-
-    int tempSBox[256];
-    for (int i = 0; i < 256; i++) tempSBox[i] = i;
-
-    // Use key to shuffle it deterministically
+    string okey = key;
     uint64_t seed = 0;
     for (size_t i = 0; i < key.length(); i++) {
-        seed = ((seed << 5) + seed) + (unsigned char)key[i]; // Hash-like combination
+        seed = ((seed << 5) + seed) + (unsigned char)key[i];
     }
+    /*
+    int tempSBox[256];
+    for (int i = 0; i < 256; i++) tempSBox[i] = i;
     mt19937 gen(seed);
     for (int i = 255; i > 0; i--) {
         uniform_int_distribution<int> dist(0, i);
         int j = dist(gen);
         swap(tempSBox[i], tempSBox[j]);
-    }
-
+    } Only needed when run independently */
     key += to_string(GRC ^ lenny + key.length());
     if (key.empty()) return "";
-
     for (size_t i = 0; i < key.length(); i++) {
         uint8_t ch = (uint8_t)key[i];
         ch = (uint8_t)(ch * 0x9E);
@@ -276,107 +273,65 @@ string Hasher::HASHER(string key, int lenny) {
         ch = (uint8_t)((ch << 3) | (ch >> 5));
         key[i] = ch;
     }
-
-    for (char& c : key) c = (unsigned char)c << 2;
-
-    string Predata = RSProducer(key);
-    string SALT = Combined;
-    for (int i = 0;i < SALT.length();i++) SALT[i] = tempSBox[(i + SALT[i]) % 256];
-    for (char& c : SALT) c = (unsigned char)((c << 1) | (c >> 7));
-
-    string AddSalt = RSProducer(SALT) + to_string(SALT.length());
-    string PRESALT1 = RSProducer(AddSalt + key);
-    string PRESALT2 = RSProducer(key + AddSalt);
-    string PRESALT3 = RSProducer(key.substr(key.length() / 2) + AddSalt + key.substr(0, key.length() / 2));
-
-    size_t presaltLen = PRESALT1.length();
-    if (PRESALT2.length() < presaltLen) presaltLen = PRESALT2.length();
-    if (PRESALT3.length() < presaltLen) presaltLen = PRESALT3.length();
-    string PRESALT;
-    PRESALT.reserve(presaltLen);
-    for (size_t i = 0; i < presaltLen; i++)
-        PRESALT.push_back(PRESALT1[i] ^ PRESALT2[i] ^ PRESALT3[i]);
-
-    string prevIntermediate;
-    string intermediate;
-    string post;
-
-    for (int round = 1; round <= 16; round++) {
-        while (Predata.length() < key.length()) Predata += Predata;
-        if (Predata.length() > key.length()) Predata.resize(key.length());
-
-        while (SALT.length() < key.length()) SALT += SALT;
-        if (SALT.length() > key.length()) SALT.resize(key.length());
-
-        intermediate.resize(key.length());
-        for (size_t i = 0; i < key.length(); i++) {
-            intermediate[i] = (((unsigned char)key[i] ^ (unsigned char)Predata[i]) >> (round % 4))
-                ^ ((unsigned char)SALT[i] >> 1);
-        }
-
-        if (!prevIntermediate.empty()) {
-            for (size_t i = 0; i < intermediate.size(); i++)
-                intermediate[i] ^= prevIntermediate[i % prevIntermediate.size()];
-        }
-        for (int i = 0;i < intermediate.length();i++) intermediate[i] = tempSBox[255 - intermediate[i]];
-        prevIntermediate = intermediate;
-        string binary = stringToBinary(intermediate);
-        string currBits;
-        currBits.reserve(binary.length());
-        for (size_t i = 0; i + 1 < binary.length(); i++) {
-            if (binary[i] == '0' && binary[i + 1] == '0') currBits += "11";
-            else if (binary[i] == '1' && binary[i + 1] == '1') currBits += "00";
-            else if (binary[i] == '1' && binary[i + 1] == '0') currBits += "01";
-            else currBits += "10";
-        }
-
-        if (post.empty()) {
-            post = currBits;
-        }
-        else {
-            string newPost;
-            newPost.reserve(currBits.size());
-            for (size_t i = 0; i < currBits.size(); i++) {
-                char existing = (i < post.size()) ? post[i] : 0;
-                newPost.push_back(((existing - '0') ^ (currBits[i] - '0')) + '0');
-            }
-            post = std::move(newPost);
-        }
-        post = Bytemix(post);
-        string entropySeed;
-        size_t esLen = 10;
-        for (size_t j = 0; j < post.size() && j < esLen; j++) entropySeed += post[j];
-        for (size_t j = 0; j < AddSalt.size() && j < esLen; j++) entropySeed += AddSalt[j];
-        for (size_t j = 0; j < PRESALT.size() && j < esLen; j++) entropySeed += PRESALT[j];
-
-        for (size_t i = 0; i < post.size(); i++)
-            post[i] ^= intermediate[i % intermediate.size()] ^ PRESALT[i % PRESALT.size()];
-
-        if (round % 9 == 0) {
-            for (char& c : post) {
-                unsigned char uc = (unsigned char)c;
-                c = (char)((uc >> 1) | (uc << 7));
-            }
-        }
-        if (round % 16 == 0) post = BytemixCorrupt(post);
+    seed = (key[key.length() - 1] ^ key[0] - key[key.length() / 2]) * 0xC2B2AE3D27D4EB4F;
+    for (int i = 0;i < key.length();i++)
+    {
+        uint64_t charpos = Nmgen(seed);
+        key[i] ^= rotate_right(SBox[(charpos + i) % 256], (key.length() - i) % 8);
     }
-
-    // --- Final expansion to exact length ---
-    size_t targetLength = static_cast<size_t>(lenny);
-    size_t iteration = 0;
-    const size_t maxIterations = 4;
-    while (post.length() < targetLength && iteration < maxIterations) {
-        size_t len = (post.length() < 32) ? post.length() : 32;
-        if (len == 0) break;
-        string segment = post.substr(0, len);
-        post += RSProducer(segment);
-        iteration++;
+    if (key.length() % 8 != 0) key += okey.substr(0, 8 - key.length() % 8);
+    int blocks = key.length() / 8;
+    string state;
+    for (int i = 0; i < 64; i++) {
+        state += char((i * 17 + 42) % 256);  // Some non-zero pattern
     }
-    if (post.length() > targetLength) post.resize(targetLength);
+    for (int i = 0;i < 16;i++)
+    {
+        std::vector<std::vector<int>> vec;
+        for (int b = 0; b < blocks; b++)
+        {
+            std::vector<int> inner;
+            // Fill the inner vector with values corresponding to each char in the block
+            for (int c = 0; c < 8; c++) {
+                int idx = b * 8 + c;       // position in the key
+                inner.push_back((unsigned char)key[idx]);  // convert char -> int
+            }
+            vec.push_back(inner);
+        }
+        for (int j = 0;j < blocks;j++)
+            for (int i = 0;i < 8;i++)
+            {
+                if (i < 4) std::swap(vec[j][i], vec[j][7 - i]);
+                if (i % 2 != 0) vec[j][i] ^= 0xFF;
+                vec[j][i] ^= SBox[((i + j) + vec[j][i]) % 256];
+                if (i % 2 == 0)  vec[j][i] = rotate_left(vec[j][i], (i + j) % 8);
+                if (i % 2 != 0) vec[j][i] = rotate_right(vec[j][i], (i + j) % 8);
+            }
+        for (int i = 0; i < blocks; i++)
+            for (int j = 0; j < 8; j++) {
+                int idx = (i * 8 + j) % 64;  // wrap into full 64-byte state
+                state[idx] ^= static_cast<unsigned char>(vec[i][j]);
+            }
+        state = Bytemix(state);
 
-    return Base64Encode(post);
+    }
+    int diff = 0;
+    if (state.length() < lenny) diff = lenny - state.length();
+    seed = 133;
+    for (int i = 0;i < state.length();i++) seed ^= state[i];
+    if (diff > 0)
+        for (int i = 0;i < diff;i++)
+        {
+            char c = char(
+                rotate_left(
+                    (Nmgen(seed) ^ (i + diff)) % 256, (i + 3) % 8));
+            state += c;
+            seed ^= c;
+
+        }
+    state = state.substr(0, lenny);
+    return state;
 }
-
 string Hasher::KDFRSARIPOFF(string content, string key) {
     if (content.empty() || key.empty()) return content;
 
@@ -1028,7 +983,10 @@ string Hasher::Graph(string data, string key)
     {
         ky.push_back(key[i % key.length()]);
     }
-
+    for(int i = 0;i<da.size();i++)
+    {
+        da[i] = SBox[255 - da[i]];
+    }
     uint64_t seedk = ky[0] ^ ky[ky.size() - 1];
     for(int i = 0;i<ky.size();i++)
     {
@@ -1043,10 +1001,10 @@ string Hasher::Graph(string data, string key)
         swap(da[i], da[pos]);
         seedd = Nmgen(seedd);
     }
-
+    uint64_t seed = 0;
     for(int i = 0;i + 1<da.size();i++)
     {
-        uint64_t seed = ky[i] ^ ky[i + 1];
+        seed = ky[i] ^ ky[i + 1];
         int dx = Nmgen(seed) % 256;
         da[i] ^= dx;
         seed = Nmgen(seed);
@@ -1067,13 +1025,11 @@ string Hasher::DecryptGraph(string decodedCipher, string KEY)
     vector<uint64_t> da;
     vector<uint64_t> ky;
     string key = KEY;
-
     if (decodedCipher.empty()) return "";
 
     for (int i = 0; i < decodedCipher.length(); i++) {
         da.push_back(decodedCipher[i]);
     }
-
     for (int i = 0; i < decodedCipher.length(); i++) {
         ky.push_back(key[i % key.length()]);
     }
@@ -1082,41 +1038,50 @@ string Hasher::DecryptGraph(string decodedCipher, string KEY)
     for (int i = 0; i < ky.size(); i++) {
         int pos = Nmgen(seedk) % ky.size();
         swap(ky[i], ky[pos]);
-        seedk = Nmgen(seedk); 
+        seedk = Nmgen(seedk);
     }
 
-    int bpos = ky.size() - 13; 
-    if (bpos < 0) bpos = 0; 
+    int bpos = ky.size() - 13;
+    if (bpos < 0) bpos = 0;
 
+    // Reverse the multiplicative transformation
     for (int i = 0; i < da.size(); i++) {
-        uint64_t mult = (ky[i] + ky[bpos]) | 1; 
-        uint64_t inv = modInverse(mult % 256, 256); 
-        da[i] = (da[i] * inv) % 256; 
+        uint64_t mult = (ky[i] + ky[bpos]) | 1;
+        uint64_t inv = modInverse(mult % 256, 256);
+        da[i] = (da[i] * inv) % 256;
     }
 
+    // Reverse the XOR operations
     for (int i = da.size() - 2; i >= 0; i--) {
         uint64_t xor_seed = ky[i] ^ ky[i + 1];
         int dx = Nmgen(xor_seed) % 256;
         da[i] ^= dx;
     }
+
+    // Reverse the data shuffling
     vector<pair<int, int>> shuffle_sequence;
-    uint64_t seedd = ky[7] ^ ky[ky.size() - 4]; 
+    uint64_t seedd = ky[7] ^ ky[ky.size() - 4];
     // Record all the swaps that were made during encryption
     for (int i = 0; i < da.size(); i++) {
         int pos = Nmgen(seedd) % da.size();
         shuffle_sequence.push_back({ i, pos });
         seedd = Nmgen(seedd);
     }
-
     for (int i = shuffle_sequence.size() - 1; i >= 0; i--) {
         swap(da[shuffle_sequence[i].first], da[shuffle_sequence[i].second]);
+    }
+
+    // Reverse the S-Box substitution (NEW - this was missing!)
+    for (int i = 0; i < da.size(); i++)
+    {
+        // Find the inverse: if SBox[255 - x] = da[i], then x = 255 - InvSBox[da[i]]
+        da[i] = 255 - InvSbox[da[i]];
     }
 
     string result = "";
     for (int i = 0; i < da.size(); i++) {
         result += (char)da[i];
     }
-
     return result;
 }
 
