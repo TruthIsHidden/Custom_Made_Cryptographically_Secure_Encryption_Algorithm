@@ -1,4 +1,4 @@
-#include "Hasher.h"
+﻿#include "Hasher.h"
 #include <algorithm>
 #include <unordered_set>
 
