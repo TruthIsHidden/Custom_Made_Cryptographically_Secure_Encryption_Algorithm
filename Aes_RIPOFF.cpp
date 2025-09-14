@@ -69,7 +69,7 @@ public:
 
         vector<char> combine;
         for (int i = 0; i < original.length(); i++)
-            combine.push_back(char(i + 3 % 256));
+            combine.push_back(Table[(i + 3 % 256)]);
         for (int i = 0;i < combine.size();i++) combine[i] ^= useKEY[i % useKEY.length()];
         std::shuffle(combine.begin(), combine.end(), gen);
 
@@ -114,7 +114,7 @@ public:
         // regenerate the same combine vector
         vector<char> combine;
         for (int i = 0; i < encrypted.length(); i++)
-            combine.push_back(char(i + 3 % 256));
+            combine.push_back(Table[(i + 3 % 256)]);
         for (int i = 0;i < combine.size();i++) combine[i] ^= useKEY[i % useKEY.length()];
         std::shuffle(combine.begin(), combine.end(), gen);
 
