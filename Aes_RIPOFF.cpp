@@ -254,120 +254,28 @@ public:
     }
     string AddRandomSalt(string orginal)
     {
+        string final;
         random_device rd;
         mt19937 gen(rd());
-        int Seed = 0;
-        int x = 0;
-        string PREDATA = KEY + KEY.substr(6, 9);
-        string USEKEY = "";
-        for (int i = PREDATA.length() - 1;i >= 0;i--) { USEKEY += char((PREDATA[i] + i - x - 1) * 131) % 143;x++; }
-        x = 0;
-        for (char& c : USEKEY) {
-            Seed += (int(c) * 133 + 2 * x) % 109;x++;
-        }
-        mt19937 fgen(Seed);
-        uniform_int_distribution<> dist(0, 99);
-        uniform_int_distribution<> zdist(0, 4);
-        uniform_int_distribution<> fdist(0, static_cast<int>(CHARSET.length() - 1));
-        uniform_int_distribution<> ndist(0, Extended.length() - 1);
-        uniform_int_distribution<> gdist(0, 7);
-        int SaltLen = 4 + zdist(gen);
-        string GenSalt, GenSalt2;
-        for (int i = 0;i < SaltLen;i++)
-        {
-            GenSalt += CHARSET[fdist(gen)];
-        }
-        SaltLen += zdist(gen);
-        for (int i = 0;i < SaltLen;i++)
-        {
-            GenSalt2 += CHARSET[fdist(gen)];
-        }
-        int num = dist(gen);
-        int num2 = fdist(gen);
-        int num3 = fdist(gen);
-        string Marker1, Marker2;
-        int pos1 = gdist(fgen);
-        int pos2 = -1;
-        while (pos2 == pos1) pos2 = gdist(fgen);
-        Marker1 = CONTROL_CHARS[pos1 % 8];
-        Marker2 = CONTROL_CHARS[pos2 % 8];
-        string final = GenSalt + Marker1 + orginal + CHARSET[num2] + Marker2 + GenSalt2 + CHARSET[num3];
-        USEKEY = h.HASHER(USEKEY, final.length());
-        string Balls = h.Bytemix(Combined);
-        for(int i = 0;i<Balls.length();i++)
-        {
-            Balls[i] <<= 2;
-        }
-        while (Balls.length() < final.length()) Balls += Balls;
-        for (int i = final.length() - 1;i >= 0;i--) {
-            unsigned char val = final[i];
-            val = (val + i + 131) & 0xFF;  
-            int rot = (i + 1) % 8;  
-            val = ((val << rot) | (val >> (8 - rot))) & 0xFF;  
-            final[i] = val ^ Balls[i] ^ USEKEY[i];
-        }
+        uniform_int_distribution<int> dist(33, 126);
+        string salt = "";
+        for (int i = 0;i < 8;i++) salt += dist(gen);
+        
+        uint64_t seed = KEY[145];
+        char org = (h.Nmgen(seed) % 256);
+        seed ^= KEY[130];
+        char sec = (h.Nmgen(seed) % 256);
+        char marker = org ^ sec;
+        string postsalt = "";
+        for (int i = 0;i < 4;i++) postsalt += dist(gen);
+        final = salt + orginal + marker +postsalt;
         return final;
     }
 
     string RemoveRandomSalt(const string& Salted)
     {
-        int Seed = 0;
-        int x = 0;
-        string PREDATA = KEY + KEY.substr(6, 9);
-        string USEKEY = "";
-        for (int i = PREDATA.length() - 1;i >= 0;i--) { USEKEY += char((PREDATA[i] + i - x - 1) * 131) % 143;x++; }
-        x = 0;
-        for (char& c : USEKEY) {
-            Seed += (int(c) * 133 + 2 * x) % 109;x++;
-        }
-
-        // First decrypt the entire string
-        string decrypted = Salted;
-        USEKEY = h.HASHER(USEKEY, decrypted.length());
-        string Balls = h.Bytemix(Combined);
-        for (int i = 0;i < Balls.length();i++)
-        {
-            Balls[i] <<= 2;
-        }
-         while (Balls.length() < decrypted.length()) Balls += Balls;
-        for (int i = decrypted.length() - 1;i >= 0;i--) {
-            unsigned char val = decrypted[i];
-            val = val ^ USEKEY[i] ^ Balls[i];  
-            int rot = (i + 1) % 8;  
-            val = ((val >> rot) | (val << (8 - rot))) & 0xFF;  
-            val = (val - i - 131) & 0xFF;  
-            decrypted[i] = val;
-        }
-
-        mt19937 fgen(Seed);
-        uniform_int_distribution<> zdist(0, 4);
-        uniform_int_distribution<> ndist(0, Extended.length() - 1);
-        uniform_int_distribution<> fdist(0, CHARSET.length() - 1);
-        uniform_int_distribution<> gdist(0, 7);
-        string Marker1, Marker2;
-        int pos1 = gdist(fgen);
-        int pos2 = -1;
-        while (pos2 == pos1) pos2 = gdist(fgen);
-        Marker1 = CONTROL_CHARS[pos1 % 8];
-        Marker2 = CONTROL_CHARS[pos2 % 8];
-        size_t pos = decrypted.find(Marker1);  
-        if (pos == string::npos) return "";
-        string afterMarker = decrypted.substr(pos + Marker1.length()); 
-        size_t sepPos = afterMarker.find(Marker2);
-        if (sepPos == string::npos || sepPos == 0) return "";
-        string Original = afterMarker.substr(0, sepPos - 1);
-        return Original;
-    }
-    string Streamer(string Data) {
-        string D_Key = KEY;
-        for (int i = D_Key.length() - 1;i >= 0;i--) D_Key[i] = ((((D_Key[i] + 43) + i) * 5) - 40) % 125;
-        Data += "\x1F\x0B\x0E";
-        if(Data.length() % 2 != 0)
-        {
-            Data += h.HASHER(Data + D_Key, (2 - (Data.length() % 2)));
-        }
-        D_Key = h.HASHER(D_Key, Data.length());
-        Data = h.Bytemix(h.DimensionalMix(Data, D_Key));
+        string Data;
+        Data = Salted.substr(8, Salted.length() - 13);
         return Data;
     }
 
@@ -436,64 +344,81 @@ public:
         GenerateRandomFusion();
         GenerateKey(password);
         h.GenSBox(KEY);
-        
         plaintext = h.DataShuffle(plaintext);
-        // cout << "post datashuffle(1): " << plaintext << endl;
         plaintext = AddRandomSalt(plaintext);
-        // cout << "post RandomSalt(1): " << plaintext << endl;
         plaintext = h.Bytemix(plaintext);
-        // cout << "post Bytemix(1): " << plaintext << endl;
         plaintext = Mix256(plaintext);
-        // cout << "post Mix(1): " << plaintext << endl;
-        plaintext = DeterministicLookUpTable(plaintext);
-        // cout << "post DLookUpTable(1): " << plaintext;
+        plaintext = h.Graph(plaintext, KEY);
         plaintext = h.DimensionalMix(plaintext, KEY);
-        // cout << "post DMix(1): " << plaintext;
         plaintext = h.Bytemix(plaintext);
-        // cout << "post Bytemix(2): " << plaintext;
-        ExtendKey(plaintext.length());
-        string encrypted = plaintext;
-        encrypted = h.Graph(encrypted, KEY);
-        // cout << "post GraphMix(1): " << encrypted << endl;
-        encrypted = h.REVERSIBLEKDFRSARIPOFF(encrypted, KEY);
-        // cout << "post REVERSIBLERSARIPOFF(1): " << plaintext << endl;
-        // encrypted = h.Graph(encrypted, KEY);
-        encrypted = h.Base64Encode(encrypted);
-        encrypted = ImplementMac(encrypted);
-        string use = RandomSaltMerge;RandomSaltMerge = "";
 
-        cout << "1: " << h.HASHER("1", 5) << endl;
-        cout << "9: " << h.HASHER("9", 5) << endl;
-        return use + ":" + encrypted;
+        string D1;
+        for (int i = 0; i < KEY.length(); i++) {
+            D1 += KEY[i] ^ (KEY.length() - 1 - i);
+        }
 
+        string SPLITKEY(KEY.length(), '0'); 
+        for (size_t i = 0; i < KEY.length(); i++) {
+            uint8_t ch = (uint8_t)KEY[i];
+            ch = (uint8_t)(ch * 0x9E);
+            ch ^= (uint8_t)((i + 1) * 0xA7);
+            ch ^= (uint8_t)(0x5C ^ (i * 0x2B));
+            ch = (uint8_t)((ch << 3) | (ch >> 5));
+            SPLITKEY[i] = ch;
+        }
 
+        for (int i = 0; i < min(SPLITKEY.length(), D1.length()); i++) {
+            SPLITKEY[i] ^= D1[i];
+        }
 
-        
+        plaintext = h.REVERSIBLEKDFRSARIPOFF(plaintext, SPLITKEY);
+        string use = RandomSaltMerge;
+        RandomSaltMerge = "";
+        return h.Base64Encode(use + (plaintext));
     }
 
     string Decrypt(string& ciphertext, const string& password) {
+        ciphertext = h.Base64Decode(ciphertext);
         RandomSaltMerge = ciphertext.substr(0, 12);
-        ciphertext = ciphertext.substr(13);
+        ciphertext = ciphertext.substr(12);
         GenerateKey(password);
         h.GenSBox(KEY);
+
+        string decodedCipher = ciphertext;
+
+        string D1;
+        for (int i = 0; i < KEY.length(); i++) {
+            D1 += KEY[i] ^ (KEY.length() - 1 - i);
+        }
+
+        cout << "[DEBUG] Decrypt - KEY.length(): " << KEY.length() << endl;
+        cout << "[DEBUG] Decrypt - D1.length(): " << D1.length() << endl;
+
+        string SPLITKEY(KEY.length(), '0');  
+        for (size_t i = 0; i < KEY.length(); i++) {
+            uint8_t ch = (uint8_t)KEY[i];
+            ch = (uint8_t)(ch * 0x9E);
+            ch ^= (uint8_t)((i + 1) * 0xA7);
+            ch ^= (uint8_t)(0x5C ^ (i * 0x2B));
+            ch = (uint8_t)((ch << 3) | (ch >> 5));
+            SPLITKEY[i] = ch;
+        }
+
+        for (int i = 0; i < min(SPLITKEY.length(), D1.length()); i++) {
+            SPLITKEY[i] ^= D1[i];
+        }
+
+        decodedCipher = h.REVERSIBLEKDFRSARIPOFF(decodedCipher, SPLITKEY);
+        decodedCipher = h.ReverseByteMix(decodedCipher);
+        decodedCipher = h.RDimensionalMix(decodedCipher, KEY);
+        decodedCipher = h.DecryptGraph(decodedCipher, KEY);
+
+        decodedCipher = ReverseMix256(decodedCipher);
+        decodedCipher = h.ReverseByteMix(decodedCipher);
+        decodedCipher = RemoveRandomSalt(decodedCipher);
+        decodedCipher = h.RDataShuffle(decodedCipher);
         RandomSaltMerge = "";
-        string decodedCipher = VerifyMac(ciphertext);
-        decodedCipher = h.Base64Decode(decodedCipher);
-        // decodedCipher = h.DecryptGraph_BruteForce(decodedCipher, KEY);
-        ExtendKey(decodedCipher.length());
-        string afterStreamer = h.REVERSIBLEKDFRSARIPOFF(decodedCipher, KEY);
-        afterStreamer = h.DecryptGraph(afterStreamer, KEY);
-        string decrypted = afterStreamer;
-        decrypted = h.ReverseByteMix(decrypted);
-        decrypted = h.RDimensionalMix(decrypted, KEY);
-        decrypted = ReverseDeterministicLookUpTable(decrypted);
-        decrypted = ReverseMix256(decrypted);
-  
-        decrypted = h.ReverseByteMix(decrypted);
-        //decrypted = RemoveIndependentSalt(decrypted);
-        decrypted = RemoveRandomSalt(decrypted);
-        decrypted = h.RDataShuffle(decrypted);
-        return decrypted;
+        return decodedCipher;
     }
 
    
