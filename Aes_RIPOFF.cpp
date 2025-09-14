@@ -49,40 +49,53 @@ public:
 
     string DeterministicLookUpTable(string original)
     {
-        int Seed = 7;
-        for (int i = 0; i < KEY.length(); i++)
-            Seed *= 13 + (i + 1) * 4 | 0xFF;
-
-        mt19937 gen(Seed);
+        string useKEY = KEY;
+        for (int j = 0;j < 2;j++)
+        {
+            for (int i = 0; i < useKEY.length(); i++)
+                useKEY[i] = ((useKEY[i] << 3) | (useKEY[i] >> 5)) ^ (useKEY[(i + 1) % useKEY.size()] + i);
+        }
+        seed_seq use(useKEY.begin(), useKEY.end());
+        mt19937 gen(use);
 
         int Table[256];
         for (int i = 0; i < 256; i++)
             Table[i] = i;
-
         for (int i = 255; i > 0; i--) {
             uniform_int_distribution<int> dist(0, i);
             int j = dist(gen);
             swap(Table[i], Table[j]);
         }
 
-        for(int j = 0; j<3;j++)
+        vector<char> combine;
+        for (int i = 0; i < original.length(); i++)
+            combine.push_back(char(i + 3 % 256));
+        for (int i = 0;i < combine.size();i++) combine[i] ^= useKEY[i % useKEY.length()];
+        std::shuffle(combine.begin(), combine.end(), gen);
+
+        for (int j = 0; j < 3;j++)
         {
             for (int i = 0; i < original.length(); i++)
+            {
+                original[i] ^= combine[i];
                 original[i] = Table[static_cast<unsigned char>(original[i])];
+            }
             original = h.Bytemix(original);
             original = h.DataShuffle(original);
         }
-
         return original;
     }
 
     string ReverseDeterministicLookUpTable(string encrypted)
     {
-        int Seed = 7;
-        for (int i = 0; i < KEY.length(); i++)
-            Seed *= 13 + (i + 1) * 4 | 0xFF;
-
-        mt19937 gen(Seed);
+        string useKEY = KEY;
+        for(int j = 0;j<2;j++)
+        {
+            for (int i = 0; i < useKEY.length(); i++)
+                useKEY[i] = ((useKEY[i] << 3) | (useKEY[i] >> 5)) ^ (useKEY[(i + 1) % useKEY.size()] + i);
+        }
+        seed_seq use(useKEY.begin(), useKEY.end());
+        mt19937 gen(use);
 
         int Table[256];
         for (int i = 0; i < 256; i++)
@@ -98,13 +111,22 @@ public:
         for (int i = 0; i < 256; i++)
             Inverse[Table[i]] = i;
 
+        // regenerate the same combine vector
+        vector<char> combine;
+        for (int i = 0; i < encrypted.length(); i++)
+            combine.push_back(char(i + 3 % 256));
+        for (int i = 0;i < combine.size();i++) combine[i] ^= useKEY[i % useKEY.length()];
+        std::shuffle(combine.begin(), combine.end(), gen);
+
         for (int j = 2; j >= 0; j--)
         {
-            encrypted = h.RDataShuffle(encrypted); 
-            encrypted = h.ReverseByteMix(encrypted);     
+            encrypted = h.RDataShuffle(encrypted);
+            encrypted = h.ReverseByteMix(encrypted);
 
-            for (int i = 0; i < encrypted.length(); i++)
+            for (int i = 0; i < encrypted.length(); i++) {
                 encrypted[i] = Inverse[static_cast<unsigned char>(encrypted[i])]; // undo Table
+                encrypted[i] ^= combine[i];  // undo XOR
+            }
         }
 
         return encrypted;
@@ -349,6 +371,7 @@ public:
         plaintext = h.Bytemix(plaintext);
         plaintext = Mix256(plaintext);
         plaintext = h.Graph(plaintext, KEY);
+        plaintext = DeterministicLookUpTable(plaintext);
         plaintext = h.DimensionalMix(plaintext, KEY);
         plaintext = h.Bytemix(plaintext);
 
@@ -391,9 +414,6 @@ public:
             D1 += KEY[i] ^ (KEY.length() - 1 - i);
         }
 
-        cout << "[DEBUG] Decrypt - KEY.length(): " << KEY.length() << endl;
-        cout << "[DEBUG] Decrypt - D1.length(): " << D1.length() << endl;
-
         string SPLITKEY(KEY.length(), '0');  
         for (size_t i = 0; i < KEY.length(); i++) {
             uint8_t ch = (uint8_t)KEY[i];
@@ -411,6 +431,7 @@ public:
         decodedCipher = h.REVERSIBLEKDFRSARIPOFF(decodedCipher, SPLITKEY);
         decodedCipher = h.ReverseByteMix(decodedCipher);
         decodedCipher = h.RDimensionalMix(decodedCipher, KEY);
+        decodedCipher = ReverseDeterministicLookUpTable(decodedCipher);
         decodedCipher = h.DecryptGraph(decodedCipher, KEY);
 
         decodedCipher = ReverseMix256(decodedCipher);
