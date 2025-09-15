@@ -258,7 +258,6 @@ string Hasher::RSProducer(string SEED) {
     return final.substr(0, min((size_t)32, final.length()));
 }
 string Hasher::HASHER(string key, int lenny) {
-    // cout << "Key: " << Base64Encode(key) << endl;
     string ogkey = key;
     int tempSBox[256];
     for (int i = 0; i < 256; i++) tempSBox[i] = i;
@@ -383,19 +382,53 @@ string Hasher::HASHER(string key, int lenny) {
 
                 for (int j = 0; j < key.length(); j++)
                     key[j] ^= rotate_left(tempSBox[((ogkey[j % ogkey.length()] ^ SALT[j % SALT.length()]) >> ((j + 1 - round) % 3)) % 256] ^ rs[j % rs.length()], (j + round + 4) % 8);
-        }
+            }
 
-         
-        if(round % 8 == 0)
-        {
-            for (int IR = 0;IR < key.length();IR++)
+
+            if (round % 8 == 0)
             {
-                for (int k = IR;k + 1 < key.length();k += 2) key[k] ^= key[k + 1];
+                for (int IR = 0;IR < key.length();IR++)
+                {
+                    for (int k = IR;k + 1 < key.length();k += 2) key[k] ^= key[k + 1];
+                }
+                if (key.length() % 8 != 0) {
+                    size_t pad = 8 - (key.length() % 8);
+                    key.append(pad, '0');
+                }
+
+                int nBlocks = key.length() / 8;
+
+                std::vector<std::vector<int>> blocks(nBlocks, std::vector<int>(8));
+
+                for (int bl = 0; bl < nBlocks; ++bl) {
+                    for (int i = 0; i < 8; ++i) {
+                        blocks[bl][i] = static_cast<unsigned char>(key[bl * 8 + i]);
+                    }
+                }
+                string replacekey;
+                for(int bl = 0;bl<nBlocks;bl++)
+                {
+                    for(int i = 0;i<8;i++)
+                    {
+                        blocks[bl][i] ^= blocks[(i+1) % (bl + 1)][(bl+1) % 8];
+                        blocks[bl][i] ^= GRC ^ tempSBox[blocks[bl][(i + 1) % 8] % 256];
+                        int targetBlock = (bl + nBlocks - i + (bl * i)) % nBlocks;
+                        int targetIndex = (bl + i + nBlocks) % 8;
+                        std::swap(blocks[bl][i], blocks[targetBlock][targetIndex]);
+                        if (blocks[bl][i] % 2 != 0) blocks[bl][i] += ((nBlocks + i + 2) | 1);
+                        if (i % 2 == 0) blocks[bl][i] = rotate_left(blocks[bl][i], (i + bl) % 8);
+                        if (i % 2 != 0) blocks[bl][i] = rotate_right(blocks[bl][i], (i + bl) % 8);
+                        if (i < 4) swap(blocks[bl][i], blocks[bl][7 - i]);
+                        int constAffine = (bl + round - i + 4) | 1;
+                        if (i < 4 && bl < nBlocks/2) swap(blocks[bl][i], blocks[nBlocks - 1 - bl][i]);
+                        replacekey += (blocks[bl][i] * (GRC + ((7 - i) * i)) / 2 + constAffine) % 256;
+                    }
+                }
+                for (int i = 0;i < key.length();i++) key[i] ^= replacekey[i % replacekey.length()];
+                
             }
         }
-        }
     }
-
     post = key;
 
     size_t targetLength = static_cast<size_t>(lenny);
@@ -412,8 +445,7 @@ string Hasher::HASHER(string key, int lenny) {
 
     if (post.length() > targetLength)
         post.resize(targetLength);
-    //cout << "Hashed: " << Base64Encode(post) << endl;
-    return post;
+    return Base64Encode(post);
 }
 
 string Hasher::KDFRSARIPOFF(string content, string key) {
