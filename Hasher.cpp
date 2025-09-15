@@ -43,6 +43,16 @@ bool Hasher::IsPrime(int num) {
     return true;
 }
 
+uint64_t rotate_left_64(uint64_t value, unsigned int positions) {
+    positions %= 64;
+    return (value << positions) | (value >> (64 - positions));
+}
+
+uint64_t rotate_right_64(uint64_t value, unsigned int positions) {
+    positions %= 64;
+    return (value >> positions) | (value << (64 - positions));
+}
+
 uint8_t rotate_right(uint8_t byte, unsigned int i) {
     i %= 8;
     return (byte >> i) | (byte << (8 - i));
@@ -247,17 +257,17 @@ string Hasher::RSProducer(string SEED) {
     }
     return final.substr(0, min((size_t)32, final.length()));
 }
-
 string Hasher::HASHER(string key, int lenny) {
-
+    // cout << "Key: " << Base64Encode(key) << endl;
+    string ogkey = key;
     int tempSBox[256];
     for (int i = 0; i < 256; i++) tempSBox[i] = i;
 
-    // Use key to shuffle it deterministically
     uint64_t seed = 0;
     for (size_t i = 0; i < key.length(); i++) {
-        seed = ((seed << 5) + seed) + (unsigned char)key[i]; // Hash-like combination
+        seed = ((seed << 5) + seed) + (unsigned char)key[i];
     }
+
     mt19937 gen(seed);
     for (int i = 255; i > 0; i--) {
         uniform_int_distribution<int> dist(0, i);
@@ -266,6 +276,7 @@ string Hasher::HASHER(string key, int lenny) {
     }
 
     key += to_string(GRC ^ lenny + key.length());
+
     if (key.empty()) return "";
 
     for (size_t i = 0; i < key.length(); i++) {
@@ -277,94 +288,120 @@ string Hasher::HASHER(string key, int lenny) {
         key[i] = ch;
     }
 
-    for (char& c : key) c = (unsigned char)c << 2;
-
-    string Predata = RSProducer(key);
     string SALT = Combined;
-    for (int i = 0;i < SALT.length();i++) SALT[i] = tempSBox[(i + SALT[i]) % 256];
-    for (char& c : SALT) c = (unsigned char)((c << 1) | (c >> 7));
 
-    string AddSalt = RSProducer(SALT) + to_string(SALT.length());
-    string PRESALT1 = RSProducer(AddSalt + key);
-    string PRESALT2 = RSProducer(key + AddSalt);
-    string PRESALT3 = RSProducer(key.substr(key.length() / 2) + AddSalt + key.substr(0, key.length() / 2));
+    for (int i = 0; i < SALT.length(); i++) {
+        unsigned char salt_val = (unsigned char)SALT[i];
 
-    size_t presaltLen = PRESALT1.length();
-    if (PRESALT2.length() < presaltLen) presaltLen = PRESALT2.length();
-    if (PRESALT3.length() < presaltLen) presaltLen = PRESALT3.length();
-    string PRESALT;
-    PRESALT.reserve(presaltLen);
-    for (size_t i = 0; i < presaltLen; i++)
-        PRESALT.push_back(PRESALT1[i] ^ PRESALT2[i] ^ PRESALT3[i]);
+        int idx1 = (255 - i) % SALT.length();
+        unsigned char temp_val = (unsigned char)SALT[idx1];
 
-    string prevIntermediate;
-    string intermediate;
-    string post;
+        int sbox_idx = temp_val % 256;
+        int combined = (i + salt_val) % 256;
+        int xor_result = combined ^ (tempSBox[sbox_idx] % 256);
+        int final_calc = (xor_result + 13) % key.length();
 
-    for (int round = 1; round <= 16; round++) {
-        while (Predata.length() < key.length()) Predata += Predata;
-        if (Predata.length() > key.length()) Predata.resize(key.length());
-
-        while (SALT.length() < key.length()) SALT += SALT;
-        if (SALT.length() > key.length()) SALT.resize(key.length());
-
-        intermediate.resize(key.length());
-        for (size_t i = 0; i < key.length(); i++) {
-            intermediate[i] = (((unsigned char)key[i] ^ (unsigned char)Predata[i]) >> (round % 4))
-                ^ ((unsigned char)SALT[i] >> 1);
-        }
-
-        if (!prevIntermediate.empty()) {
-            for (size_t i = 0; i < intermediate.size(); i++)
-                intermediate[i] ^= prevIntermediate[i % prevIntermediate.size()];
-        }
-        for (int i = 0;i < intermediate.length();i++) intermediate[i] = tempSBox[255 - intermediate[i]];
-        prevIntermediate = intermediate;
-        string binary = stringToBinary(intermediate);
-        string currBits;
-        currBits.reserve(binary.length());
-        for (size_t i = 0; i + 1 < binary.length(); i++) {
-            if (binary[i] == '0' && binary[i + 1] == '0') currBits += "11";
-            else if (binary[i] == '1' && binary[i + 1] == '1') currBits += "00";
-            else if (binary[i] == '1' && binary[i + 1] == '0') currBits += "01";
-            else currBits += "10";
-        }
-
-        if (post.empty()) {
-            post = currBits;
-        }
-        else {
-            string newPost;
-            newPost.reserve(currBits.size());
-            for (size_t i = 0; i < currBits.size(); i++) {
-                char existing = (i < post.size()) ? post[i] : 0;
-                newPost.push_back(((existing - '0') ^ (currBits[i] - '0')) + '0');
-            }
-            post = std::move(newPost);
-        }
-        post = Bytemix(post);
-        string entropySeed;
-        size_t esLen = 10;
-        for (size_t j = 0; j < post.size() && j < esLen; j++) entropySeed += post[j];
-        for (size_t j = 0; j < AddSalt.size() && j < esLen; j++) entropySeed += AddSalt[j];
-        for (size_t j = 0; j < PRESALT.size() && j < esLen; j++) entropySeed += PRESALT[j];
-
-        for (size_t i = 0; i < post.size(); i++)
-            post[i] ^= intermediate[i % intermediate.size()] ^ PRESALT[i % PRESALT.size()];
-
-        if (round % 9 == 0) {
-            for (char& c : post) {
-                unsigned char uc = (unsigned char)c;
-                c = (char)((uc >> 1) | (uc << 7));
-            }
-        }
-        if (round % 16 == 0) post += to_string(GRC - 6 * post.length() ^ ((round + 1) * 4));
+        SALT[i] = tempSBox[final_calc];
     }
 
-    // --- Final expansion to exact length ---
+    string post = "";
+    string Diffuser;
+    vector<int> Salts;
+
+    int seed_idx = (SALT.length() - 1) ^ 13;
+    if (seed_idx >= SALT.length()) seed_idx = seed_idx % SALT.length();
+    seed = (unsigned char)SALT[seed_idx];
+
+    for (int i = 0; i < SALT.length(); i++) {
+        Salts.push_back((unsigned char)SALT[i]);
+        char c = Nmgen(seed);
+        Diffuser += tempSBox[((unsigned char)c) % 256];
+
+        if (i < Diffuser.length()) {
+            Salts.push_back((unsigned char)Diffuser[i]);
+        }
+        else {
+            Salts.push_back(0); 
+        }
+        seed ^= (unsigned char)c;
+    }
+
+    if (Salts.empty()) {
+        Salts.push_back(42);
+    }
+
+    uint64_t initial = Nmgen((unsigned char)key[9]);
+    string rs;
+    for (int i = 0;i < 32;i++) rs += Nmgen(i ^ initial + GRC - 32 + i) % 256;
+    for (int round = 0; round < 16; round++)
+    {
+        for (int i = 0;i < 32;i++) key += Nmgen(initial ^ i + GRC) % 256 ^ rs[i];
+        for (int i = 0; i < key.length(); i++) {
+            int salt_idx = (i + 3) % Salts.size();
+            key[i] ^= tempSBox[((unsigned char)key[i]) ^ (Salts[salt_idx] % 256)];
+        }
+
+        for (int i = 0; i + 1 < key.length(); i++) {
+            std::swap(key[i], key[i + 1]);
+        }
+
+        int safe_idx = 34 % Salts.size();
+        initial = Salts[safe_idx];
+
+        for (int i = 0; i < Salts.size(); i++) {
+            int key_idx = (round + i + 13) % key.length();
+            initial ^= Nmgen((unsigned char)key[key_idx]);
+            Salts[i] ^= rotate_left(initial ^ i + 1 - round, ((i - round) + round) % 8);
+            Salts[i] = abs(Salts[i]) % 256;
+        }
+
+        for (int i = 0; i < key.length(); i++) {
+            int sbox_idx = ((round - i + Salts.size()) ^ 133) % 256;
+            key[i] = ((unsigned char)key[i]) ^ ((0xC6A4A7935BD1E995ULL ^ tempSBox[sbox_idx]) % 256);
+        }
+
+        if (round % 2 != 0) initial = ~initial;
+        if (round % 2 == 0) initial = rotate_right_64(initial, (round + Salts.size() + 13) % 64);
+        if (round % 9 == 0) key = Bytemix(key);
+        if (round % 6 == 0)
+        {
+            for (int i = 0;i + 3 < key.length();i += 4) key[i] = (key[i] ^ key[i]) * 12 * (i + 3 - round) + ((round + key.length() + i) | 1);
+        }
+
+        rs = Bytemix(rs);
+
+        if (round % 4 == 0)
+        {
+            seed_seq mixx(key.begin(), key.end());
+            mt19937 mgen(mixx);
+            std::shuffle(std::begin(tempSBox), std::end(tempSBox), mgen);
+            for (int k = 0;k < key.length();k++) key[k] = tempSBox[static_cast<uint8_t>(key[k])];
+            for (int i = 0; i < rs.length(); i++) {
+                uint8_t val = static_cast<uint8_t>(rs[i]);
+                val ^= (tempSBox[val] ^ tempSBox[rs.length() - 1 - i] ^ (i + 13)) % 256;
+                rs[i] = static_cast<char>(val);
+
+                for (int j = 0; j < key.length(); j++)
+                    key[j] ^= rotate_left(tempSBox[((ogkey[j % ogkey.length()] ^ SALT[j % SALT.length()]) >> ((j + 1 - round) % 3)) % 256] ^ rs[j % rs.length()], (j + round + 4) % 8);
+        }
+
+         
+        if(round % 8 == 0)
+        {
+            for (int IR = 0;IR < key.length();IR++)
+            {
+                for (int k = IR;k + 1 < key.length();k += 2) key[k] ^= key[k + 1];
+            }
+        }
+        }
+    }
+
+    post = key;
+
     size_t targetLength = static_cast<size_t>(lenny);
     size_t iteration = 0;
     const size_t maxIterations = 4;
+
     while (post.length() < targetLength && iteration < maxIterations) {
         size_t len = (post.length() < 32) ? post.length() : 32;
         if (len == 0) break;
@@ -372,10 +409,13 @@ string Hasher::HASHER(string key, int lenny) {
         post += RSProducer(segment);
         iteration++;
     }
-    if (post.length() > targetLength) post.resize(targetLength);
 
-    return Base64Encode(post);
+    if (post.length() > targetLength)
+        post.resize(targetLength);
+    //cout << "Hashed: " << Base64Encode(post) << endl;
+    return post;
 }
+
 string Hasher::KDFRSARIPOFF(string content, string key) {
     if (content.empty() || key.empty()) return content;
 
@@ -478,206 +518,6 @@ string Hasher::REVERSIBLEKDFRSARIPOFF(string Orginal, string KEY)
     return Orginal;
 }
 
-/*string Hasher::MINIHASHER(string key, int lenny) {
-
-    key = (to_string(GRC).substr(0, lenny)) + key;
-    for (size_t i = 0; i < key.length(); i++)
-    {
-        uint8_t ch = (uint8_t)key[i];
-        ch = (uint8_t)(ch * 0x9E);
-        ch ^= (uint8_t)((i + 1) * 0xA7);  
-        ch ^= (uint8_t)(0x5C ^ (i * 0x2B)); 
-        ch = (uint8_t)((ch << 3) | (ch >> 5));
-        key[i] = ch;
-    }
-    for (int i = 0;i < key.length();i++) key[i] ^= (0xAB + i * 0x17) ^ 0xAB;
-    for (int i = 0;i < key.length();i++) key[i] = SBox[((256 - i - lenny) + 3) % 256];
-    if (key.empty()) return "";
-
-    for (char& c : key) {
-        c = (unsigned char)c << 2;
-    }
-
-    string Predata = RSProducer(key);
-    key = RSProducer(key);
-
-    string intermediate;
-    string prevIntermediate;
-    string binary;
-    string post;
-    string SALT = Combined;
-
-    for (char& c : SALT) {
-        c = (unsigned char)((c << 1) | (c >> 7));
-    }
-
-    string AddSalt = ((RSProducer(SALT) + to_string(SALT.length())));
-    string PRESALT1 = RSProducer(AddSalt + key);
-    string PRESALT2 = RSProducer(key + AddSalt);
-    string PRESALT3 = RSProducer(key.substr(key.length() / 2) + AddSalt + key.substr(0, key.length() / 2));
-    string PRESALT = "";
-    for (size_t i = 0; i < min({ PRESALT1.length(), PRESALT2.length(), PRESALT3.length() }); i++) {
-        PRESALT += char(PRESALT1[i] ^ PRESALT2[i] ^ PRESALT3[i]);
-    }
-
-    for (int i = 1; i <= 16; i++) {
-
-        while (Predata.length() < key.length()) Predata += Predata;
-        Predata = Predata.substr(0, key.length());
-
-        while (SALT.length() < key.length()) SALT += SALT;
-        SALT = SALT.substr(0, key.length());
-
-        string currIntermediate;
-        for (size_t y = 0; y < key.length(); y++) {
-            currIntermediate.push_back((((unsigned char)key[y] ^ rotate_left((unsigned char)Predata[y], (i + 4) % 8) ^ ((unsigned char)SALT[y] >> 1))));
-        }
-
-        if (!prevIntermediate.empty()) {
-            for (size_t j = 0; j < currIntermediate.length() && j < prevIntermediate.length(); j++) {
-                currIntermediate[j] = (unsigned char)currIntermediate[j] ^ (unsigned char)prevIntermediate[j];
-            }
-        }
-       for(int j = 0;j<prevIntermediate.length();j++)
-       {
-           prevIntermediate[j] ^= key[(i + j) % key.length()];
-       }
-        prevIntermediate = currIntermediate;
-        intermediate = currIntermediate;
-        binary = stringToBinary(intermediate);
-
-        string currentBits;
-        for (size_t m = 0; m < binary.length() - 1; m++) {
-            if (binary[m] == '0' && binary[m + 1] == '0')
-                currentBits += "11";
-            else if (binary[m] == '1' && binary[m + 1] == '1')
-                currentBits += "00";
-            else if (binary[m] == '1' && binary[m + 1] == '0')
-                currentBits += "01";
-            else if (binary[m] == '0' && binary[m + 1] == '1')
-                currentBits += "10";
-        }
-
-        if (post.empty()) {
-            post = currentBits;
-        }
-        else {
-            for (size_t z = 0; z < currentBits.size(); z++) {
-                if (z >= post.size())
-                    post.push_back(currentBits[z]);
-                else
-                    post[z] = ((post[z] - '0') ^ (currentBits[z] - '0')) + '0';
-            }
-        }
-
-        vector<uint32_t> entropySeed;
-        entropySeed.push_back(static_cast<uint32_t>(post.length()));
-        entropySeed.push_back(static_cast<uint32_t>(AddSalt.length()));
-        entropySeed.push_back(static_cast<uint32_t>(PRESALT.length()));
-
-        // Add round number for uniqueness
-        entropySeed.push_back(static_cast<uint32_t>(i));
-
-        // Add original key bytes to entropy
-        entropySeed.push_back(static_cast<uint32_t>(key.length()));
-        for (int idx = 0; idx < min(8, (int)key.length()); ++idx)
-            entropySeed.push_back(static_cast<uint32_t>((unsigned char)key[idx]));
-
-        for (int idx = 0; idx < 10 && idx < (int)post.length(); ++idx)
-            entropySeed.push_back(static_cast<uint32_t>((unsigned char)post[idx]));
-        for (int idx = 0; idx < 10 && idx < (int)AddSalt.length(); ++idx)
-            entropySeed.push_back(static_cast<uint32_t>((unsigned char)AddSalt[idx]));
-        for (int idx = 0; idx < 10 && idx < (int)PRESALT.length(); ++idx)
-            entropySeed.push_back(static_cast<uint32_t>((unsigned char)PRESALT[idx]));
-
-        seed_seq S(entropySeed.begin(), entropySeed.end());
-        mt19937 s(S);
-        uniform_int_distribution<int> dist(1, 7);
-        uniform_int_distribution<int> ndist(1, 4);
-        uniform_int_distribution<int> fdist(0, 2);
-
-        post = PRESALT + post;
-        post += AddSalt;
-        SALT = RSProducer(intermediate);
-
-        for (char& c : SALT) {
-            c = c << (i % 8);
-        }
-
-        AddSalt = RSProducer(binary);
-        for (char& c : AddSalt) {
-            int shift = 1 + (binary[(i + 1) % binary.length()] - '0'); 
-            unsigned char uc = static_cast<unsigned char>(c);
-            uc = static_cast<unsigned char>(uc >> shift);
-            c = static_cast<char>(uc);
-        }
-
-        PRESALT = RSProducer(AddSalt);
-        for (char& c : PRESALT) {
-            c = (unsigned char)c >> 1; 
-        }
-
-        int saltLen = dist(s);
-        AddSalt = AddSalt.substr(0, min(saltLen, (int)AddSalt.length()));
-        for (int i = 0;i < AddSalt.length();i++) AddSalt[i] = SBox[(((i + 13) - 2 * lenny) + 200) % 256];
-        PRESALT = PRESALT.substr(0, min(saltLen, (int)PRESALT.length()));
-        for (int j = 0;j < AddSalt.length();j++)
-        {
-            AddSalt[j] ^= key[(i + j) % key.length()];
-        }
-
-        for (size_t m = 0; m < PRESALT.length(); m++) {
-            PRESALT[m] = ((((((((unsigned char)PRESALT[m] << 1) * i % 251) >> (m % 8)) + (i - (int)m) * 2 % max(1, (int)PRESALT.length())) >> (i % 2)) + 13) >> 1) % 256;
-        }
-
-        for (size_t m = 0; m < post.length(); m++) {
-            post[m] = (unsigned char)post[m] ^ ((((((unsigned char)intermediate[m % intermediate.size()] << 1) | ((unsigned char)intermediate[m % intermediate.size()] >> 7) + (i * 3) << 1) % 256)));
-        }
-
-        if (post.length() % 8 == 0) {
-            if (post.length() < 7) {
-                post.append("!@3?f-+R}{|" + char((PRESALT[i % PRESALT.length()])) - 2);
-            }
-            else {
-                int reduction = ndist(s);
-                post = post.substr(0, post.length() - min(reduction, (int)post.length()));
-            }
-        }
-
-        if (post.length() % 16 == 0) {
-            post = KDFRSARIPOFF(post, AddSalt);
-            int ind = 0;
-            for (char& c : post)
-            {
-                c = c - (ndist(s) + 2);
-            }
-        }
-        if (i % 8) {
-            for (char& c : PRESALT) {
-                c = (unsigned char)c << (1 + fdist(s));
-            }
-        }
-        if (i % 9) {
-            for (char& c : post) {
-                unsigned char uc = (unsigned char)c;
-                uc = (unsigned char)((uc >> 1) | (uc << 7)); 
-                c = (char)uc;
-            }
-        }
-        for (int j = 0;j < post.length();j++)
-        {
-            post[j] ^= key[(i + j) % key.length()];
-        }
-        
-        if (i % 16 == 0) post = BytemixCorrupt(post);
-        for (int i = 0;i < post.length();i++) post[i] = SBox[(((i + 11) - 2 * lenny) + 201) % 256];
-    }
-    while (post.length() < lenny) {
-        post += RSProducer(post + post[40 % (post.length() / 2)]);
-    }
-
-    return Base64Encode(post.substr(0, lenny));
-}*/
 string Hasher::DimensionalMix(string Original, string KEY)
 {
     int dataPerBlock = (BlockSize * BlockSize) / 2;
@@ -1162,17 +1002,6 @@ void Hasher::GenSBox(string prekey)
     GenerateInvSBox();
        
 }
-
-uint64_t rotate_left_64(uint64_t value, unsigned int positions) {
-    positions %= 64;
-    return (value << positions) | (value >> (64 - positions));
-}
-
-uint64_t rotate_right_64(uint64_t value, unsigned int positions) {
-    positions %= 64;
-    return (value >> positions) | (value << (64 - positions));
-}
-
 
 uint64_t Hasher:: Nmgen(uint64_t num)
 {
