@@ -180,7 +180,6 @@ string Hasher::XORPairs(const string& input) {
     }
     return result;
 }
-
 string Hasher::RSProducer(string SEED) {
     if (SEED.empty()) SEED = "fallback";
     if (SEED.length() < 2) SEED += SEED;
@@ -206,9 +205,10 @@ string Hasher::RSProducer(string SEED) {
     string strLPN = to_string(LPN);
     string final = strLPN;
     for (size_t i = 0; i < SEED.length(); i++) {
-        SEED[i] ^= SEED[(i + 1) % SEED.length()];  
+        SEED[i] ^= SEED[(i + 1) % SEED.length()];
     }
-    for (int iter = 1; iter <= 64; iter++) {
+
+    for (int iter = 1; iter <= 16; iter++) {
         for (size_t i = 0; i < SEED.length(); i++) {
             SEED[i] = (unsigned char)SEED[i] ^ ((((((unsigned char)SEED[i] >> (i % 6)) ^ (5 * i)) + 12 * i) * (i % SEED.length()) >> 1) % 256);
         }
@@ -249,14 +249,52 @@ string Hasher::RSProducer(string SEED) {
         for (size_t i = 0; i < final.length(); i++) {
             final[i] = (unsigned char)final[i] ^ ((unsigned char)SEED[i] >> (i % 5));
         }
-        
+
         while (SEED.length() <= final.length()) {
             SEED += SEED;
         }
         final.push_back(SEED[final.length() % SEED.length()]);
     }
+
+    if (final.length() % 32 != 0) {
+        size_t pad = 32 - (final.length() % 32);
+        final.append(pad, '0');
+    }
+
+    int nBlocks = final.length() / 32;
+    std::vector<std::vector<int>> blocks(nBlocks, std::vector<int>(32));
+    for (int bl = 0; bl < nBlocks; ++bl) {
+        for (int i = 0; i < 32; ++i) {
+            blocks[bl][i] = static_cast<unsigned char>(final[bl * 32 + i]);
+        }
+    }
+
+    for (int i = 0; i < nBlocks; i++) {
+        for (int j = 0; j < 32; j++) {
+            blocks[i][j] ^= blocks[j % nBlocks][i % (j + 1)];
+            if (j % 2 == 0)
+                blocks[i][j] += ((j + i - 3) + 32 - j + 4) | 1;
+            if (i % 2 == 0)
+                blocks[j % nBlocks][i] = rotate_left(blocks[j % nBlocks][i], (i + j) % 8);
+            if (i % 2 != 0)
+                blocks[j % nBlocks][i] = rotate_right(blocks[j % nBlocks][i], (i + j + 1) % 8);
+            blocks[i][j] ^= blocks[nBlocks - 1 - i][32 - 1 - j] ^ (GRC + j - i + 3) / 2;
+            std::swap(blocks[i][j], blocks[(i + 1 + j) % nBlocks][(i + 3) % (j + 1)]);
+        }
+    }
+
+    string newfinal(32, '0');
+    for (int i = 0; i < nBlocks; i++) {
+        for (int j = 0; j < 32; j++) {
+            newfinal[j] ^= final[j] ^ blocks[i][j];
+        }
+    }
+    final = newfinal;
+
     return final.substr(0, min((size_t)32, final.length()));
 }
+
+
 string Hasher::HASHER(string key, int lenny) {
     string ogkey = key;
     int tempSBox[256];
